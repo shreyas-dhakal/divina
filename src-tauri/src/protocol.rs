@@ -68,6 +68,27 @@ pub struct InsertPayload {
     pub import_from: String,
     pub anchor: SourceRef,
     pub position: Position,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library: Option<LibraryRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryRef {
+    pub id: String,
+    pub name: String,
+    pub install: String,
+    pub usage: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomAnchor {
+    pub selector: String,
+    pub tag: String,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -108,7 +129,10 @@ pub enum EditKind {
 #[serde(rename_all = "camelCase")]
 pub struct EditRecord {
     pub id: String,
+    /// `file` is empty when the element has no source tag; `dom` then describes it.
     pub target: SourceRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dom: Option<DomAnchor>,
     pub viewport: Viewport,
     pub scope: Scope,
     #[serde(flatten)]
@@ -219,6 +243,51 @@ pub struct LibraryComponent {
     pub import_from: String,
     pub source: ComponentSource,
     pub previewable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    Javascript,
+    Rust,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stack {
+    pub language: Language,
+    pub framework: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tailwind: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogComponent {
+    pub name: String,
+    pub usage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogLibrary {
+    pub id: String,
+    pub name: String,
+    pub framework: String,
+    pub versions: String,
+    pub install: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub import_from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docs: Option<String>,
+    #[serde(default)]
+    pub custom: bool,
+    pub components: Vec<CatalogComponent>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -335,6 +404,16 @@ mod tests {
         roundtrip::<EditRecord>(json!({"id": "e1", "kind": "insert", "target": src, "viewport": vp,
             "scope": "mobile-down", "payload": {"component": "Button", "importFrom": "@/components/ui/button",
             "anchor": src, "position": "inside-end"}}));
+        roundtrip::<EditRecord>(json!({"id": "e4", "kind": "insert",
+            "target": {"file": "", "line": 0, "col": 0, "owners": []},
+            "dom": {"selector": "main > h2", "tag": "h2", "text": "Our Services", "meta": "src/Home.svelte:4:1"},
+            "viewport": vp, "scope": "all", "payload": {"component": "Button", "importFrom": "thaw",
+            "anchor": {"file": "", "line": 0, "col": 0, "owners": []}, "position": "after",
+            "library": {"id": "thaw", "name": "Thaw", "install": "cargo add thaw", "usage": "<Button>\"Hi\"</Button>"}}}));
+        roundtrip::<Stack>(json!({"language": "rust", "framework": "leptos", "version": "0.7.2"}));
+        roundtrip::<CatalogLibrary>(json!({"id": "thaw", "name": "Thaw", "framework": "leptos", "versions": ">=0.7",
+            "install": "cargo add thaw", "custom": false,
+            "components": [{"name": "Button", "usage": "<Button/>", "thumbnail": "/catalog/thaw/Button.webp"}]}));
         roundtrip::<EditRecord>(json!({"id": "e2", "kind": "style", "target": src, "viewport": vp,
             "scope": "tablet-down", "payload": {"classes": "p-4", "props": {"variant": "ghost"}}}));
         // delete carries no payload; TS allows it to be absent

@@ -34,6 +34,32 @@ export interface InsertPayload {
   importFrom: string;
   anchor: SourceRef;
   position: Position;
+  /** Set when the component comes from the catalog; the agent installs the library if missing. */
+  library?: LibraryRef;
+}
+
+/** Catalog library a dropped component belongs to. */
+export interface LibraryRef {
+  id: string;
+  name: string;
+  /** Install command shown to the agent, never run by Divina. */
+  install: string;
+  /** Example usage of the dropped component, e.g. `<Button>Click</Button>`. */
+  usage: string;
+}
+
+/**
+ * Page-side description of an element with no source tag (non-React, or tagging off).
+ * Divina searches the source for `text` to suggest locations; the agent decides.
+ */
+export interface DomAnchor {
+  /** CSS path from body, e.g. `main > section:nth-of-type(2) > h2`. */
+  selector: string;
+  tag: string;
+  /** Nearest visible text, trimmed to 80 chars; "" when none. */
+  text: string;
+  /** `file:line:col` from framework dev metadata (Svelte `__svelte_meta`, Vue component `__file`). */
+  meta?: string;
 }
 
 export interface MovePayload {
@@ -52,7 +78,9 @@ export interface TextPayload {
 
 interface EditBase {
   id: string;
+  /** `file` is "" when the element has no source tag; `dom` then describes it. */
   target: SourceRef;
+  dom?: DomAnchor;
   viewport: Viewport;
   scope: Scope;
 }
@@ -125,6 +153,40 @@ export type AgentEvent =
   | { type: "tool"; name: string; input: unknown }
   | { type: "done"; ok: boolean }
   | { type: "error"; message: string };
+
+/** What the project is built with, from package.json / Cargo.toml. */
+export interface Stack {
+  language: "javascript" | "rust" | "other";
+  /** react, vue, svelte, leptos, yew, dioxus, or "unknown". */
+  framework: string;
+  /** Installed framework version, e.g. "19.1.0" or "0.7.2". */
+  version?: string;
+  /** Installed tailwindcss version, when present. */
+  tailwind?: string;
+}
+
+export interface CatalogComponent {
+  name: string;
+  /** Example usage, e.g. `<Button>Click</Button>` or `view! { <Button>"Click"</Button> }`. */
+  usage: string;
+  /** App-relative URL of a pre-rendered image, e.g. `/catalog/shadcn/Button.webp`. */
+  thumbnail?: string;
+}
+
+/** A component library Divina knows about (bundled catalog) or the user added. */
+export interface CatalogLibrary {
+  id: string;
+  name: string;
+  framework: string;
+  /** Semver range of the framework this library supports, e.g. ">=0.7". */
+  versions: string;
+  install: string;
+  /** Import path for the components, when the language has one. */
+  importFrom?: string;
+  docs?: string;
+  custom: boolean;
+  components: CatalogComponent[];
+}
 
 export interface LibraryComponent {
   name: string;
