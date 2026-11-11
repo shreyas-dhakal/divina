@@ -38,13 +38,15 @@ fn detect_stack_at(root: &Path) -> Stack {
         .and_then(|s| serde_json::from_str::<JsonValue>(&s).ok())
         .and_then(|v| v["version"].as_str().map(str::to_owned));
 
-    if js_has("react") {
-        return Stack {
-            language: Language::Javascript,
-            framework: "react".into(),
-            version: js_version("react"),
-            tailwind: tailwind_version,
-        };
+    for framework in ["react", "vue", "svelte"] {
+        if js_has(framework) {
+            return Stack {
+                language: Language::Javascript,
+                framework: framework.into(),
+                version: js_version(framework),
+                tailwind: tailwind_version,
+            };
+        }
     }
     let rust_projects = rust_project_dirs(root);
     for project in &rust_projects {
@@ -303,6 +305,10 @@ mod tests {
             r#"{"dependencies":{"react":"^18.2.0","next":"15"}}"#,
         );
         assert_eq!(detect_stack_at(&next).framework, "react");
+        let svelte = temp();
+        write(&svelte.join("package.json"), r#"{"devDependencies":{"svelte":"^5.1.0"}}"#);
+        assert_eq!(detect_stack_at(&svelte).framework, "svelte");
+        assert_eq!(detect_stack_at(&svelte).version.as_deref(), Some("5.1.0"));
         let rust = temp();
         write(
             &rust.join("Cargo.toml"),
