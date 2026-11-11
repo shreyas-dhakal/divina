@@ -226,6 +226,8 @@ pub struct LibraryComponent {
 pub enum Framework {
     Vite,
     Next,
+    /// Anything else (Laravel, Rails, Django, PHP...): started with the user's own run command.
+    Custom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -244,6 +246,21 @@ pub struct ProjectInfo {
     pub framework: Framework,
     pub package_manager: PackageManager,
     pub tailwind: bool,
+    /// Saved in `.divina/run.json`; None until the user confirms how to run the project.
+    pub run: Option<RunConfig>,
+    /// Pre-fill for the setup dialog.
+    pub suggested_run: RunConfig,
+}
+
+/// How to serve a project for the preview. An empty `command` means Divina's built-in
+/// Vite/Next start (with source tagging); otherwise it runs in the login shell.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunConfig {
+    pub command: String,
+    /// Preview URL; when absent, the first local URL the command prints is used.
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -4,6 +4,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { AgentChat, type ChatEntry } from "@/components/AgentChat";
 import { Frame } from "@/components/Frame";
 import { Library } from "@/components/Library";
+import { RunSetup } from "@/components/RunSetup";
 import { SettingsFooter } from "@/components/Settings";
 import { editKey, Properties, sameRef, type Selection } from "@/components/Properties";
 import { Badge } from "@/components/ui/badge";
@@ -54,7 +55,11 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   const scope = scopeFor(viewport);
   const [url, setUrl] = useState<string | null>(null);
   const [frameError, setFrameError] = useState("");
-  const [status, setStatus] = useState<DevServerStatus>({ state: "starting" });
+  const [info, setInfo] = useState(project);
+  /** First open of a project asks how to run it; the dev server starts once that's saved. */
+  const [setupOpen, setSetupOpen] = useState(project.run === null);
+  const [runKey, setRunKey] = useState(0);
+  const [status, setStatus] = useState<DevServerStatus>({ state: project.run ? "starting" : "stopped" });
   const [logs, setLogs] = useState<string[]>([]);
   const [logsOpen, setLogsOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -86,8 +91,15 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
 
   // Dev server, logs, proxy URL.
   useEffect(() => {
-    api.startDevServer(root).then(setStatus, (e) => setLogs((l) => [...l, `start failed: ${e}`]));
-    connect();
+    if (info.run) {
+      setStatus({ state: "starting" });
+      setUrl(null);
+      api.startDevServer(root).then(setStatus, (e) => {
+        if (String(e) === "NEEDS_RUN_CONFIG") setSetupOpen(true);
+        else setLogs((l) => [...l, `start failed: ${e}`]);
+      });
+      connect();
+    }
     const un = api.onDevServerLog((l) => setLogs((prev) => [...prev.slice(-500), l.line]));
     const poll = setInterval(() => api.devServerStatus().then(setStatus, () => {}), 2000);
     api.detectAgents().then((list) => {
@@ -99,7 +111,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       api.stopDevServer().catch(() => {});
       void un.then((f) => f());
     };
-  }, [root]);
+  }, [root, runKey]);
 
   useEffect(() => {
     if (status.state === "running" && !url) connect();
@@ -289,8 +301,8 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
           <div className="min-h-0 flex-1">
             <Frame
               url={url}
-              error={frameError}
-              onRetry={connect}
+              error={info.run ? frameError : "Preview not set up yet."}
+              onRetry={info.run ? connect : () => setSetupOpen(true)}
               viewport={viewport}
               setViewport={setViewport}
               iframeRef={iframeRef}
@@ -303,10 +315,16 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
             />
           </div>
           <div className="border-t">
-            <button className="w-full px-2 py-1 text-left text-xs text-muted-foreground" onClick={() => setLogsOpen(!logsOpen)}>
-              {logsOpen ? "▾" : "▸"} Dev server: {status.state}
-              {status.state === "running" && ` · ${status.url}`}
-            </button>
+            <div className="flex items-center text-xs text-muted-foreground">
+              <button className="flex-1 truncate px-2 py-1 text-left" onClick={() => setLogsOpen(!logsOpen)}>
+                {logsOpen ? "▾" : "▸"} Dev server: {info.run ? status.state : "not set up"}
+                {status.state === "running" && ` · ${status.url}`}
+                {info.run?.command && ` · ${info.run.command}`}
+              </button>
+              <Button size="xs" variant="ghost" onClick={() => setSetupOpen(true)}>
+                {info.run ? "Run command…" : "Set up preview"}
+              </Button>
+            </div>
             {logsOpen && (
               <pre className="h-48 overflow-auto bg-muted px-2 py-1 font-mono text-xs whitespace-pre-wrap">{logs.join("\n")}</pre>
             )}
@@ -380,6 +398,16 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
         </div>
       </ResizablePanel>
     </ResizablePanelGroup>
+    <RunSetup
+      project={info}
+      open={setupOpen}
+      onCancel={() => setSetupOpen(false)}
+      onSaved={(p) => {
+        setInfo(p);
+        setSetupOpen(false);
+        setRunKey((k) => k + 1);
+      }}
+    />
     </div>
   );
 }

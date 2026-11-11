@@ -135,9 +135,20 @@ export interface LibraryComponent {
 
 export interface ProjectInfo {
   root: string;
-  framework: "vite" | "next";
+  /** "custom": anything Divina doesn't start itself (Laravel, Rails, Django, PHP...). */
+  framework: "vite" | "next" | "custom";
   packageManager: "pnpm" | "npm" | "yarn" | "bun";
   tailwind: boolean;
+  /** Saved in .divina/run.json; null until the user confirms how to run the project. */
+  run: RunConfig | null;
+  suggestedRun: RunConfig;
+}
+
+/** How to serve a project. Empty `command` = Divina's built-in Vite/Next start with source tagging. */
+export interface RunConfig {
+  command: string;
+  /** Preview URL; when absent, the first local URL the command prints. */
+  url?: string | null;
 }
 
 export type DevServerStatus =

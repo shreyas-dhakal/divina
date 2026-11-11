@@ -44,6 +44,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             project::open_project,
             project::create_project,
+            project::save_run_config,
             devserver::start_dev_server,
             devserver::stop_dev_server,
             devserver::dev_server_status,

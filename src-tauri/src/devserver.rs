@@ -127,6 +127,18 @@ static STATE: Mutex<State> = Mutex::new(State { status: DevServerStatus::Stopped
 #[tauri::command]
 pub async fn start_dev_server(app: AppHandle, root: String) -> Result<DevServerStatus, String> {
     let info = crate::project::open_project(root)?; // also stops any running server
+    let run = info.run.clone().unwrap_or_default();
+    if info.framework == Framework::Custom || !run.command.trim().is_empty() {
+        if run.command.trim().is_empty() {
+            return Err("NEEDS_RUN_CONFIG".into());
+        }
+        // The user's own command, through the login shell so php/composer/python/rbenv resolve.
+        // ponytail: no source tagging here; selection still works, edits fall back to DOM + screenshots.
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let mut cmd = tokio::process::Command::new(shell);
+        cmd.args(["-lc", &run.command]).current_dir(&info.root);
+        return launch(app, cmd, &info.root, run.url.filter(|u| !u.trim().is_empty())).await;
+    }
     let pkg: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(Path::new(&info.root).join("package.json")).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
@@ -174,11 +186,15 @@ pub async fn start_dev_server(app: AppHandle, root: String) -> Result<DevServerS
         PackageManager::Bun => "bun",
     };
     let mut cmd = tokio::process::Command::new(pm);
-    cmd.args(&args)
-        .current_dir(&info.root)
-        .env("BROWSER", "none")
+    cmd.args(&args).current_dir(&info.root).env("NODE_OPTIONS", node_options.trim());
+    launch(app, cmd, &info.root, None).await
+}
+
+/// Starts `cmd` as the project's dev server. The preview URL is `fixed_url` once it accepts
+/// connections, or else the first local URL the command prints.
+async fn launch(app: AppHandle, mut cmd: tokio::process::Command, root: &str, fixed_url: Option<String>) -> Result<DevServerStatus, String> {
+    cmd.env("BROWSER", "none")
         .env("NO_COLOR", "1")
-        .env("NODE_OPTIONS", node_options.trim())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -188,7 +204,8 @@ pub async fn start_dev_server(app: AppHandle, root: String) -> Result<DevServerS
     // A server left behind by a crashed/killed app (no exit hook) would hold the port, and
     // Next.js refuses a second dev server for the same dir.
     // ponytail: trusts the recorded pid; a reused pid's group could be hit, check the command line if that bites.
-    if let Ok(pid) = std::fs::read_to_string(Path::new(&info.root).join(PID_FILE)) {
+    let _ = std::fs::create_dir_all(Path::new(root).join(".divina"));
+    if let Ok(pid) = std::fs::read_to_string(Path::new(root).join(PID_FILE)) {
         kill_tree(pid.trim().parse().ok());
     }
     let generation = {
@@ -198,13 +215,13 @@ pub async fn start_dev_server(app: AppHandle, root: String) -> Result<DevServerS
         s.generation
     };
     let (ready_tx, ready_rx) = oneshot::channel();
-    tauri::async_runtime::spawn(supervise(app, cmd, generation, ready_tx));
+    tauri::async_runtime::spawn(supervise(app, cmd, generation, ready_tx, fixed_url));
     let _ = tokio::time::timeout(Duration::from_secs(60), ready_rx).await;
     Ok(dev_server_status())
 }
 
 /// Runs the dev server, restarting it once if it exits on its own.
-async fn supervise(app: AppHandle, mut cmd: tokio::process::Command, generation: u64, ready: oneshot::Sender<()>) {
+async fn supervise(app: AppHandle, mut cmd: tokio::process::Command, generation: u64, ready: oneshot::Sender<()>, fixed_url: Option<String>) {
     let mut ready = Some(ready);
     for attempt in 0..2 {
         let log = |stream, line: String| {
@@ -231,9 +248,32 @@ async fn supervise(app: AppHandle, mut cmd: tokio::process::Command, generation:
         let (tx, mut rx) = mpsc::unbounded_channel();
         pipe(child.stdout.take(), LogStream::Stdout, tx.clone());
         pipe(child.stderr.take(), LogStream::Stderr, tx);
+        let (url_tx, mut url_rx) = mpsc::unbounded_channel::<String>();
+        if let Some(url) = fixed_url.clone() {
+            tauri::async_runtime::spawn(async move {
+                let Some(addr) = host_port(&url) else { return };
+                for _ in 0..240 {
+                    if tokio::net::TcpStream::connect(&addr).await.is_ok() {
+                        let _ = url_tx.send(url);
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            });
+        }
         let mut running = false;
-        while let Some((stream, line)) = rx.recv().await {
-            if !running && let Some(url) = parse_local_url(&line) {
+        loop {
+            let (line, url) = tokio::select! {
+                Some(url) = url_rx.recv() => (None, Some(url)),
+                next = rx.recv() => match next {
+                    Some((stream, line)) => {
+                        let url = if fixed_url.is_none() { parse_local_url(&line).or_else(|| parse_any_local_url(&line)) } else { None };
+                        (Some((stream, line)), url)
+                    }
+                    None => break,
+                },
+            };
+            if !running && let Some(url) = url {
                 running = true;
                 match crate::proxy::start(&url).await {
                     Ok(_) => {
@@ -248,7 +288,9 @@ async fn supervise(app: AppHandle, mut cmd: tokio::process::Command, generation:
                     let _ = r.send(());
                 }
             }
-            log(stream, line);
+            if let Some((stream, line)) = line {
+                log(stream, line);
+            }
         }
         let code = child.wait().await.ok().and_then(|s| s.code());
         let mut s = STATE.lock().unwrap();
@@ -314,6 +356,25 @@ fn parse_local_url(line: &str) -> Option<String> {
     Some(url.trim_end_matches(['/', ',']).to_string())
 }
 
+/// Any loopback URL in a line, for custom servers: `Server running on [http://127.0.0.1:8000]`,
+/// `Starting development server at http://127.0.0.1:8000/`, `Listening on http://127.0.0.1:3000`.
+fn parse_any_local_url(line: &str) -> Option<String> {
+    let line = strip_ansi(line);
+    let start = line.find("http://")?;
+    let url = line[start..].split(|c: char| c.is_whitespace() || "[]()<>\"'".contains(c)).next()?;
+    let url = url.trim_end_matches(['/', ',', '.']);
+    let host = url["http://".len()..].split(['/', ':']).next()?;
+    ["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]
+        .contains(&host)
+        .then(|| url.replacen("0.0.0.0", "127.0.0.1", 1))
+}
+
+/// `host:port` of an http URL, for the readiness probe.
+fn host_port(url: &str) -> Option<String> {
+    let authority = url.strip_prefix("http://")?.split('/').next()?;
+    Some(if authority.contains(':') { authority.to_string() } else { format!("{authority}:80") })
+}
+
 fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();
@@ -337,6 +398,20 @@ fn strip_ansi(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::parse_local_url as p;
+
+    #[test]
+    fn parses_custom_server_urls() {
+        use super::parse_any_local_url as a;
+        assert_eq!(a("   INFO  Server running on [http://127.0.0.1:8000].").as_deref(), Some("http://127.0.0.1:8000"));
+        assert_eq!(a("Starting development server at http://127.0.0.1:8000/").as_deref(), Some("http://127.0.0.1:8000"));
+        assert_eq!(a("* Listening on http://0.0.0.0:3000").as_deref(), Some("http://127.0.0.1:3000"));
+        assert_eq!(
+            a("[Wed Nov 11 17:41:25 2026] PHP 8.5.9 Development Server (http://127.0.0.1:8765) started").as_deref(),
+            Some("http://127.0.0.1:8765")
+        );
+        assert_eq!(a("see http://example.com/docs"), None);
+        assert_eq!(super::host_port("http://127.0.0.1:8000/x").as_deref(), Some("127.0.0.1:8000"));
+    }
 
     #[test]
     fn parses_dev_server_urls() {
