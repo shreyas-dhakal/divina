@@ -137,21 +137,28 @@ pub async fn create_project(
         if !tool_available("cargo", &["--version"]) {
             return Err("cargo is required to create a Leptos project".into());
         }
-        write_leptos_files(&dir, &name)?;
-        let lock = Command::new("cargo")
-            .arg("generate-lockfile")
-            .current_dir(&dir)
-            .env("CI", "1")
-            .stdin(std::process::Stdio::null())
-            .output()
-            .map_err(|e| format!("could not run cargo: {e}"))?;
-        if !lock.status.success() {
-            return Err(format!(
-                "cargo generate-lockfile failed:\n{}{}",
-                String::from_utf8_lossy(&lock.stdout),
-                String::from_utf8_lossy(&lock.stderr)
-            ));
-        }
+        let dir2 = dir.clone();
+        let name2 = name.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            write_leptos_files(&dir2, &name2)?;
+            let lock = Command::new("cargo")
+                .arg("generate-lockfile")
+                .current_dir(&dir2)
+                .env("CI", "1")
+                .stdin(std::process::Stdio::null())
+                .output()
+                .map_err(|e| format!("could not run cargo: {e}"))?;
+            if !lock.status.success() {
+                return Err(format!(
+                    "cargo generate-lockfile failed:\n{}{}",
+                    String::from_utf8_lossy(&lock.stdout),
+                    String::from_utf8_lossy(&lock.stderr)
+                ));
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| e.to_string())??;
         return inspect(&dir);
     }
     if !tool_available("pnpm", &["--version"]) {
