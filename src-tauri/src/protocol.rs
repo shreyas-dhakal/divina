@@ -1,7 +1,6 @@
 //! Shared contracts. Mirrors src/shared/protocol.ts exactly; change both together.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -269,15 +268,6 @@ pub struct AgentInfo {
     pub version: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum AgentEvent {
-    Text { text: String },
-    Tool { name: String, input: Value },
-    Done { ok: bool },
-    Error { message: String },
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ComponentSource {
@@ -438,7 +428,7 @@ pub struct McpServerInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     fn roundtrip<T: Serialize + for<'de> Deserialize<'de>>(v: Value) {
         let parsed: T = serde_json::from_value(v.clone()).expect("deserialize");
@@ -483,7 +473,6 @@ mod tests {
         roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0}));
         roundtrip::<HostToOverlay>(json!({"type": "preview-edit", "record": {"id": "e4", "kind": "text", "target": src,
             "viewport": vp, "scope": "all", "payload": {"text": "Hi"}}}));
-        roundtrip::<AgentEvent>(json!({"type": "done", "ok": true}));
         roundtrip::<DevServerStatus>(json!({"state": "running", "url": "http://localhost:5173"}));
     }
 }

@@ -186,7 +186,7 @@ fn rpc(
         "notifications/initialized" => return json!({}),
         "ping" => json!({}),
         "tools/list" => json!({"tools":[
-            {"name":"get_pending_edits","description":"Get queued preview edits awaiting Apply.","inputSchema":{"type":"object","properties":{}}},
+            {"name":"get_pending_edits","description":"Get the queued Divina canvas edits plus instructions for implementing them in the code.","inputSchema":{"type":"object","properties":{}}},
             {"name":"screenshot_frame","description":"Capture the preview at its current viewport as PNG.","inputSchema":{"type":"object","properties":{}}},
             {"name":"get_dom_snapshot","description":"Get the preview DOM tree with source references.","inputSchema":{"type":"object","properties":{}}},
             {"name":"get_console_errors","description":"Get console errors from the preview.","inputSchema":{"type":"object","properties":{}}}
@@ -252,6 +252,8 @@ fn rpc(
                     .strip_prefix("data:image/png;base64,")
                     .unwrap_or(data_url);
                 json!({"content":[{"type":"image","data":data,"mimeType":"image/png"}],"isError":false})
+            } else if name == "get_pending_edits" {
+                pending_edits_result(payload)
             } else {
                 json!({"content":[{"type":"text","text":payload.to_string()}],"structuredContent":payload,"isError":false})
             }
@@ -259,6 +261,23 @@ fn rpc(
         _ => return error(id, -32601, "method not found"),
     };
     json!({"jsonrpc":"2.0","id":id,"result":result})
+}
+/// The host answers with `{root, edits}` (or a bare edits array); the agent gets the edits and the
+/// same brief `agent_prompt` builds, so "apply my Divina edits" works in any agent tab.
+fn pending_edits_result(payload: Value) -> Value {
+    let (root, edits) = match payload {
+        Value::Object(mut o) => (
+            o.remove("root").and_then(|r| r.as_str().map(str::to_owned)),
+            o.remove("edits").unwrap_or(json!([])),
+        ),
+        edits => (None, edits),
+    };
+    let records: Vec<crate::protocol::EditRecord> =
+        serde_json::from_value(edits.clone()).unwrap_or_default();
+    // ponytail: without a root the untagged-element text search finds nothing; the host sends it.
+    let brief = crate::agent::build_prompt(std::path::Path::new(root.as_deref().unwrap_or("")), &records);
+    let text = if brief.is_empty() { "No pending Divina edits.".to_owned() } else { brief };
+    json!({"content":[{"type":"text","text":text}],"structuredContent":{"edits":edits},"isError":false})
 }
 static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 fn error(id: Value, code: i32, message: &str) -> Value {
@@ -282,7 +301,10 @@ mod tests {
                 serve(stream, "secret", &worker_shared, move |id, tool, _| {
                     assert_eq!(tool, "get_pending_edits");
                     let mut waiting = response_shared.waiting.lock().unwrap();
-                    waiting.insert(id, Some(json!([])));
+                    waiting.insert(id, Some(json!({"root": "/nonexistent", "edits": [{"id": "e1", "kind": "style",
+                        "target": {"file": "src/Hero.tsx", "line": 4, "col": 1, "owners": []},
+                        "viewport": {"preset": "desktop", "width": 1280, "height": 800}, "scope": "all",
+                        "payload": {"classes": "p-4", "props": {}}}]})));
                     response_shared.ready.notify_all();
                     Ok(())
                 })
@@ -302,6 +324,9 @@ mod tests {
                 .unwrap();
         assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 4);
         let called: Value = serde_json::from_str(&call(json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_pending_edits","arguments":{}}}))).unwrap();
-        assert_eq!(called["result"]["structuredContent"], json!([]));
+        assert_eq!(called["result"]["structuredContent"]["edits"][0]["id"], "e1");
+        let text = called["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.starts_with("Divina pending edits: implement these changes in the code."));
+        assert!(text.contains("src/Hero.tsx"));
     }
 }

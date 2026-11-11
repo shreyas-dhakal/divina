@@ -2,7 +2,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  AgentEvent,
   AgentInfo,
   AgentKind,
   CatalogLibrary,
@@ -33,12 +32,8 @@ export const api = {
   proxyUrl: () => invoke<string>("proxy_url"),
 
   detectAgents: () => invoke<AgentInfo[]>("detect_agents"),
-  /** Checkpoints, starts the agent and resolves with the checkpoint; output arrives via onAgentEvent. */
-  runAgent: (agent: AgentKind, projectDir: string, prompt: string, edits: EditRecord[]) =>
-    invoke<Checkpoint>("run_agent", { agent, projectDir, prompt, edits }),
-  cancelAgent: () => invoke<void>("cancel_agent"),
-  onAgentEvent: (cb: (event: AgentEvent) => void): Promise<UnlistenFn> =>
-    listen<AgentEvent>("agent://event", (e) => cb(e.payload)),
+  /** The brief for the pending edits, for an interactive agent session; "" when there are none. */
+  agentPrompt: (root: string, edits: EditRecord[]) => invoke<string>("agent_prompt", { root, edits }),
 
   startMcpServer: () => invoke<McpServerInfo>("start_mcp_server"),
   mcpConfigFor: (agent: AgentKind) => invoke<string>("mcp_config_for", { agent }),
