@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { applyPreview, calculateDropPosition, resolveSourceRef } from "./overlay.js";
+import { applyPreview, buildDomAnchor, calculateDropPosition, resolveSourceRef } from "./overlay.js";
 
 describe("source references", () => {
   it("reads file:line:col tags, the owner chain and a map index", () => {
@@ -40,6 +40,46 @@ describe("drop positions", () => {
     const container = document.createElement("div");
     container.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 100, top: 0, right: 100, bottom: 100, left: 0, toJSON() {} });
     expect(calculateDropPosition(container, 50, 50)).toBe("inside-end");
+  });
+});
+
+describe("DOM anchors", () => {
+  it("builds a body-relative path with nth-of-type and extracts nearby text", () => {
+    document.body.innerHTML = `<main><section></section><section><h2>  Helpful   heading </h2><button></button></section></main>`;
+    const button = document.querySelector("button")!;
+    expect(buildDomAnchor(button)).toMatchObject({
+      selector: "main > section:nth-of-type(2) > button", tag: "button", text: "Helpful heading",
+    });
+  });
+
+  it("reads Svelte and Vue development metadata", () => {
+    document.body.innerHTML = `<main><p></p><div></div></main>`;
+    const [svelte, vue] = [...document.querySelectorAll("main > *")];
+    Object.defineProperty(svelte!, "__svelte_meta", { value: { loc: { file: "/project/src/App.svelte", line: 4, column: 2 } } });
+    Object.defineProperty(vue!, "__vueParentComponent", { value: { type: { __file: "/project/src/Card.vue" } } });
+    expect(buildDomAnchor(svelte!).meta).toBe("/project/src/App.svelte:4:2");
+    expect(buildDomAnchor(vue!).meta).toBe("/project/src/Card.vue:0:0");
+  });
+
+  it("keeps empty text when no nearby text exists", () => {
+    document.body.innerHTML = "<main><div></div></main>";
+    expect(buildDomAnchor(document.querySelector("div")!).text).toBe("");
+  });
+});
+
+describe("untagged library insert", () => {
+  it("sends an edit with a DOM anchor and empty source target", async () => {
+    const sent: MessageEvent[] = [];
+    window.parent.postMessage = ((message: unknown) => sent.push({ data: message } as MessageEvent)) as typeof window.parent.postMessage;
+    document.body.innerHTML = "<main><h1>Title</h1></main>";
+    const target = document.querySelector("h1")!;
+    document.elementFromPoint = () => target;
+    await import("./main.js");
+    window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data: { type: "preview-insert", component: "Button", importFrom: "@/button", x: 5, y: 5, library: { id: "ui", name: "UI", install: "", usage: "<Button/>" } } }));
+    const edit = sent.map((event) => event.data as { type?: string; record?: { target: { file: string }; dom?: { selector: string }; payload?: { library?: { id: string } } } }).find((message) => message.type === "edit")!;
+    expect(edit.record?.target.file).toBe("");
+    expect(edit.record?.dom?.selector).toBe("main > h1");
+    expect(edit.record?.payload?.library?.id).toBe("ui");
   });
 });
 

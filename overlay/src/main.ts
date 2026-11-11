@@ -1,5 +1,5 @@
 import type { DomNode, EditRecord, HostToOverlay, OverlayMode, OverlayToHost, Position, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
-import { applyPreview, calculateDropPosition, getUserCodeTarget, resolveSourceRef } from "./overlay.js";
+import { applyPreview, buildDomAnchor, calculateDropPosition, getUserCodeTarget, resolveSourceRef } from "./overlay.js";
 
 const hostOrigin = (() => {
   try { return new URL(document.referrer).origin; } catch { return ""; }
@@ -46,7 +46,7 @@ ui.append(outline, indicator);
 (document.documentElement ?? document.body).append(ui);
 
 function usable(element: Element | null): boolean {
-  return !!element && !ui.contains(element) && !element.closest("[data-divina-ui]");
+  return !!element && element !== document.documentElement && element !== document.body && !ui.contains(element) && !element.closest("[data-divina-ui], [data-divina-placeholder]");
 }
 function record(kind: EditRecord["kind"], target: SourceRef, payload?: EditRecord["payload"]): EditRecord {
   return { id: id(), kind, target, viewport: viewport(), scope: scope(), ...(payload === undefined ? {} : { payload }) } as EditRecord;
@@ -60,7 +60,7 @@ function updateOutline(element: Element | null) {
 function targetAt(x: number, y: number): Element | null {
   let element: Element | null = document.elementFromPoint(x, y);
   while (element && !usable(element)) element = element.parentElement;
-  return element ? getUserCodeTarget(element) : null;
+  return element ? getUserCodeTarget(element) ?? element : null;
 }
 function showDrop(target: Element, position: Position) {
   const rect = target.getBoundingClientRect();
@@ -157,11 +157,11 @@ function onPointerUp(event: PointerEvent) {
   }
 }
 /** Host-driven drop of a library component at frame coords (pointer events never reach the iframe during a host drag). */
-function dropInsert(component: string, importFrom: string, x: number, y: number) {
+function dropInsert(component: string, importFrom: string, x: number, y: number, library?: import("../../src/shared/protocol.ts").LibraryRef) {
   indicator.style.display = "none";
   const target = targetAt(x, y);
-  const anchor = target && resolveSourceRef(target);
-  if (!target || !anchor) return;
+  if (!target) return;
+  const anchor = resolveSourceRef(target);
   const position = calculateDropPosition(target, x, y);
   const box = document.createElement("div");
   box.dataset.divinaPlaceholder = "true";
@@ -170,7 +170,11 @@ function dropInsert(component: string, importFrom: string, x: number, y: number)
   if (position.startsWith("inside")) target.insertBefore(box, position === "inside-start" ? target.firstChild : null);
   else target.parentNode?.insertBefore(box, position === "before" ? target : target.nextSibling);
   revert.push(() => box.remove());
-  send({ type: "edit", record: record("insert", anchor, { component, importFrom, anchor, position }) });
+  if (anchor) send({ type: "edit", record: record("insert", anchor, { component, importFrom, anchor, position, ...(library ? { library } : {}) }) });
+  else {
+    const emptyTarget: SourceRef = { file: "", line: 0, col: 0, owners: [] };
+    send({ type: "edit", record: { ...record("insert", emptyTarget, { component, importFrom, anchor: emptyTarget, position, ...(library ? { library } : {}) }), dom: buildDomAnchor(target) } });
+  }
 }
 function onClick(event: MouseEvent) {
   if (mode !== "select" || !usable(event.target as Element)) return;
@@ -247,7 +251,7 @@ function receive(event: MessageEvent<HostToOverlay>) {
       showInsertHover(message.x, message.y);
       break;
     case "preview-insert":
-      dropInsert(message.component, message.importFrom, message.x, message.y);
+      dropInsert(message.component, message.importFrom, message.x, message.y, message.library);
       break;
     case "preview-edit": {
       const { file, line, col } = message.record.target;
