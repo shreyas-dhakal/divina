@@ -4,6 +4,14 @@ Figma for a real frontend. A desktop app (Tauri v2 + Rust) where you drag, move 
 
 Design spec: [docs/superpowers/specs/2026-11-11-divina-design.md](docs/superpowers/specs/2026-11-11-divina-design.md)
 
+## Install
+
+```
+brew install shreyas-dhakal/tap/divina
+```
+
+macOS (Apple Silicon and Intel). You need Node.js and at least one of Claude Code, Codex or opencode installed and logged in.
+
 ## Dev
 
 ```sh
