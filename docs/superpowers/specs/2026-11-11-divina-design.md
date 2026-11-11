@@ -1,5 +1,7 @@
 # Divina — design
 
+> **Historical.** This is the original design from 2026-11-11. The product as built is described in [docs/PRODUCT.md](../../PRODUCT.md), which wins wherever they differ.
+
 Figma for a real frontend. A desktop app where you drag, move and tweak UI on your actual running project, and a local coding agent (Claude Code / Codex / opencode) rewrites the source to match.
 
 ## Intent and why

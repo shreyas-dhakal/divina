@@ -135,7 +135,7 @@ export interface LibraryComponent {
 
 export interface ProjectInfo {
   root: string;
-  /** "custom": anything Divina doesn't start itself (Laravel, Rails, Django, PHP...). */
+  /** Descriptive only: React + Vite, React + Next.js, or anything else (Laravel, Rails, Django, PHP...). */
   framework: "vite" | "next" | "custom";
   packageManager: "pnpm" | "npm" | "yarn" | "bun";
   tailwind: boolean;
