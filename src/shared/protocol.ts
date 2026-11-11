@@ -82,6 +82,7 @@ export interface DomNode {
   ref?: SourceRef;
   rect: Rect;
   text?: string;
+  classes?: string;
   children: DomNode[];
 }
 
