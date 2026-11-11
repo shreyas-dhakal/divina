@@ -58,7 +58,7 @@ You can change all of this later from **Run command…** under the preview.
 - **Resize** with the corner handle, and **double-click** text to edit it.
 - **Properties** (right panel): change text, classes, padding, margin, gap, width and height.
 - **Library** (left panel): drag a component into the frame. On Vite projects each component shows a live thumbnail rendered by your dev server. To install more, type a command in the installer box, for example `pnpm dlx shadcn@latest add card`.
-- **Component libraries:** the dropdown above the library lists ready-made libraries for your stack (shadcn/ui for React, Thaw for Leptos), with pictures of each component. Drag one in and the agent installs the library if needed when you send your edits to it. **Add library…** adds your own, for this project or all of them.
+- **Component libraries:** the dropdown above the library lists ready-made libraries for your stack (shadcn/ui for React, shadcn-vue for Vue, shadcn-svelte for Svelte, Thaw for Leptos), with pictures of each component. Drag one in and the agent installs the library if needed when you send your edits to it. **Add library…** adds your own, for this project or all of them.
 - **Any framework:** drops work even without source tagging, for example in a Rust, Vue or Django frontend. Divina searches your code for the text near the drop and the agent picks the spot, checking with a screenshot.
 
 Each change previews instantly and joins **Pending edits**.
