@@ -20,6 +20,8 @@ import type {
   DevServerStatus,
   EditRecord,
   HostToOverlay,
+  LibraryComponent,
+  LibraryRef,
   OverlayToHost,
   ProjectInfo,
 } from "@/shared/protocol";
@@ -310,7 +312,9 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
               onHover={({ x, y }) => post({ type: "insert-hover", x, y })}
               onDrop={(c, x, y) => {
                 setDragging(false);
-                post({ type: "preview-insert", component: c.name, importFrom: c.importFrom, x, y });
+                // Catalog cards carry `library`; project components don't, so their payload is unchanged.
+                const { library } = c as LibraryComponent & { library?: LibraryRef };
+                post({ type: "preview-insert", component: c.name, importFrom: c.importFrom, x, y, ...(library && { library }) });
               }}
             />
           </div>

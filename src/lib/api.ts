@@ -5,6 +5,7 @@ import type {
   AgentEvent,
   AgentInfo,
   AgentKind,
+  CatalogLibrary,
   Checkpoint,
   CheckpointDiff,
   DevServerLog,
@@ -14,6 +15,7 @@ import type {
   McpServerInfo,
   ProjectInfo,
   RunConfig,
+  Stack,
 } from "@/shared/protocol";
 
 export const api = {
@@ -47,6 +49,11 @@ export const api = {
     invoke<LibraryComponent[]>("run_installer", { root, command }),
   onInstallerLog: (cb: (log: DevServerLog) => void): Promise<UnlistenFn> =>
     listen<DevServerLog>("library://log", (e) => cb(e.payload)),
+  detectStack: (root: string) => invoke<Stack>("detect_stack", { root }),
+  listCatalog: (root: string) => invoke<CatalogLibrary[]>("list_catalog", { root }),
+  /** `global` saves it for every project instead of this one; resolves with the updated catalog. */
+  saveLibrary: (root: string, library: CatalogLibrary, global: boolean) =>
+    invoke<CatalogLibrary[]>("save_library", { root, library, global }),
 
   createCheckpoint: (root: string, label: string) =>
     invoke<Checkpoint>("create_checkpoint", { root, label }),
