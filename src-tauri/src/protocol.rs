@@ -193,7 +193,14 @@ pub enum OverlayToHost {
 #[serde(tag = "type", rename_all = "kebab-case", rename_all_fields = "camelCase")]
 pub enum HostToOverlay {
     SetMode { mode: OverlayMode },
-    PreviewInsert { component: String, import_from: String, x: f64, y: f64 },
+    PreviewInsert {
+        component: String,
+        import_from: String,
+        x: f64,
+        y: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        library: Option<LibraryRef>,
+    },
     InsertHover { x: f64, y: f64 },
     PreviewEdit { record: EditRecord },
     ClearOptimistic,
@@ -423,6 +430,8 @@ mod tests {
         roundtrip::<OverlayToHost>(json!({"type": "screenshot-response", "requestId": "r1", "dataUrl": "data:"}));
         roundtrip::<OverlayToHost>(json!({"type": "hover", "ref": null, "rect": null}));
         roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Card", "importFrom": "x", "x": 10.5, "y": 20.0}));
+        roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Button", "importFrom": "thaw", "x": 1.0, "y": 2.0,
+            "library": {"id": "thaw", "name": "Thaw", "install": "cargo add thaw", "usage": "<Button/>"}}));
         roundtrip::<HostToOverlay>(json!({"type": "clear-optimistic"}));
         roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0}));
         roundtrip::<HostToOverlay>(json!({"type": "preview-edit", "record": {"id": "e4", "kind": "text", "target": src,

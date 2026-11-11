@@ -129,7 +129,7 @@ export type OverlayToHost =
 export type HostToOverlay =
   | { type: "set-mode"; mode: OverlayMode }
   /** x/y: drop point in frame (unscaled viewport) coordinates. */
-  | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number }
+  | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number; library?: LibraryRef }
   /** Host drag in progress over the frame: show the drop indicator at x/y (frame coords). */
   | { type: "insert-hover"; x: number; y: number }
   /** Optimistic preview of a Properties edit on the element at record.target; reverted by clear-optimistic. */
