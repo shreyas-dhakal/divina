@@ -69,13 +69,16 @@ Three resizable columns:
 
 #### Editing on the canvas
 
-This needs source tagging (see Known limits).
+Selecting, moving, resizing and text editing need source tagging (see Known limits). Library drops work on any page.
 
 - **Hover** outlines elements. **Click** selects the usage site in your own code. Elements whose source is under `components/ui/` or `node_modules/` are skipped in favour of the nearest owner in your code. Items rendered by a `.map()` carry `list: {file, line, index}`.
 - **Drag a selected element** to move it. A drop line shows before or after a sibling, or inside a container, following the parent's flex or grid direction. The result is a `move` edit.
 - **Resize handle:** creates a `resize` edit with width and height in px. The agent turns it into layout classes.
 - **Double-click text** to edit it in place, which creates a `text` edit.
 - **Drag a component from the library** into the frame. A drop indicator follows the pointer and a labelled placeholder is inserted, which creates an `insert` edit.
+  - **On untagged pages** (any framework, Rust included), the edit has an empty `target.file` and a `dom` anchor instead: the element's CSS path, tag, its first text run (or the nearest sibling or heading text, up to 80 chars), and `meta` (`file:line:col`) when the framework exposes dev metadata (Svelte `__svelte_meta`; Vue component `__file`, line 0).
+  - **Locating the code:** at Apply, Divina lists up to 5 likely source locations: `meta` first, then a search for the text (`git grep`, exact then case-insensitive, honouring `.gitignore` and skipping `node_modules`, `target`, `dist`, `build`, `.divina` and lockfiles; a file walk outside git). Text under 3 characters isn't searched.
+  - **The agent decides:** the prompt gives the selector, text and candidates, says the purple placeholder marks the drop, and asks the agent to screenshot first, implement, then screenshot again and fix the placement if it's wrong.
 - **Properties tab:**
   - shows the selected element's source location
   - edits its text and Tailwind classes
@@ -98,6 +101,15 @@ This needs source tagging (see Known limits).
 - **One continuing session per agent per project,** resumed on later runs and stored in `.divina/session.json`, so "now nudge it" keeps its context.
 
 #### Component library
+
+A dropdown at the top picks the source: **Your project** (below), one entry per catalog library that matches the project's stack, and **Add library…**. The detected stack shows beside it (e.g. "React 19", "Leptos 0.7").
+
+- **Stack detection:** `package.json` gives react, vue or svelte (Next.js and Vite count as react), with the installed version from `node_modules`, else the declared one. `Cargo.toml` (and non-glob workspace members) gives leptos, yew or dioxus, with the version from `Cargo.lock`, else the declared one. Anything else is "unknown".
+- **Catalog:** bundled in the app (`src-tauri/catalog/catalog.json`): shadcn/ui for React 18+ and Thaw for Leptos 0.7+. A library shows when its framework matches and its version range matches (an unknown or unparsable version matches). Components show as a grid with pre-rendered thumbnails (`public/catalog/<library>/<Name>.webp`); a missing image shows the name.
+- **Dropping a catalog component** adds `library: {id, name, install, usage}` to the insert. The agent installs the library with that command if it isn't a dependency yet and follows the usage. Divina never runs the command.
+- **Add library…:** name, framework (prefilled), install command, optional import path and docs URL, components one per line as `Name` or `Name | usage`, and **Save for all my projects**. Saved to `.divina/libraries.json`, or `~/.divina/libraries.json` for all projects; a project entry wins over a global one with the same id, and either replaces a bundled one.
+
+Your project:
 
 - **shadcn:** components from the `components.json` ui alias folder.
 - **Packages:** React packages in `package.json`, found by reading each package's type declarations for PascalCase exports and following `export *`. Results are cached per hash of package.json and the lockfile.
@@ -167,7 +179,9 @@ Checkpoints are git objects under `refs/divina/checkpoints/<n>`, not files.
 
 ## Known limits (honest list)
 
-- **No canvas editing without tagging.** Without source tagging (non-React projects, or tagging off), clicking in the preview selects nothing, because the overlay needs `data-divina-src`. Chat prompts still work, and the agent still gets screenshots, the DOM and console errors.
+- **Limited canvas editing without tagging.** Without source tagging (non-React projects, or tagging off), clicking in the preview selects nothing, because the overlay needs `data-divina-src`. Library drops still work through DOM anchors, and chat prompts still work.
+- **Untagged drops are located by a guess.** The text search only finds text written literally in the source: not text built at runtime, i18n keys or icon-only elements. Repeated text gives several candidates. The agent picks and checks with screenshots, and can still pick wrong. Outside git the search reads every file, with no size limit.
+- **Catalog:** two bundled libraries so far (shadcn/ui, Thaw). Custom libraries have no thumbnails and can't be edited or deleted from the app (edit the JSON file). Thaw thumbnails were captured from Thaw's docs site.
 - **No owner chains on Next.js.** Tagging gives `file:line:col` only.
 - **Screenshot fallback:** the native screenshot exists only on macOS. Elsewhere the in-page capture is used, which can miss cross-origin styles.
 - **Not notarized:** see Install and release.

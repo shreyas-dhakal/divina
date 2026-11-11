@@ -24,6 +24,7 @@ How the product in `docs/PRODUCT.md` is built. Read that first. This file maps b
                                         ├─ mcp/           local MCP server the agent calls
                                         ├─ checkpoint.rs  git-object snapshots, restore, diff
                                         ├─ library.rs     component discovery, installer, thumbnail page
+                                        ├─ catalog.rs     stack detection, bundled + custom component catalog
                                         └─ snapshot.rs    native WKWebView screenshot
 
  user's command ($SHELL -lc) ─► user's dev server ◄─ proxy ◄─ iframe
@@ -65,6 +66,7 @@ All are registered in `src-tauri/src/lib.rs`, and the typed wrappers are in `src
 | `cancel_agent` | agent | |
 | `start_mcp_server`, `mcp_config_for(agent)`, `mcp_respond(id, payload)` | mcp | |
 | `list_components(root)`, `run_installer(root, command)` | library | |
+| `detect_stack(root)`, `list_catalog(root)`, `save_library(root, library, global)` | catalog | catalog data in `src-tauri/catalog/catalog.json`, thumbnails in `public/catalog/` |
 | `create_checkpoint`, `list_checkpoints`, `restore_checkpoint`, `diff_since_checkpoint`, `init_git` | checkpoint | |
 | `snapshot_frame(x, y, width, height, outWidth)` | snapshot | |
 | `user_name` | lib.rs | the macOS full name, for the settings row |
@@ -100,10 +102,11 @@ All are registered in `src-tauri/src/lib.rs`, and the typed wrappers are in `src
    - reads the tags
    - resolves the user-code target with `getUserCodeTarget`, which skips `components/ui/` and `node_modules/`
    - computes drop positions from the parent's flex or grid direction
+   - for drops on untagged elements, builds a `DomAnchor` (`buildDomAnchor`) and sends the insert with an empty `target.file`
    - applies optimistic DOM changes with a revert log
    - sends `edit` records
 2. The host stamps each record with the current viewport and `scopeFor` (`src/lib/viewport.ts`).
-3. **Library drags** don't send pointer events into the iframe (`dragDropEnabled=false` in `tauri.conf.json` keeps HTML5 drag in the webview). The host sends `insert-hover` and `preview-insert` with frame coordinates from `toFrameCoords`.
+3. **Library drags** don't send pointer events into the iframe (`dragDropEnabled=false` in `tauri.conf.json` keeps HTML5 drag in the webview). The host sends `insert-hover` and `preview-insert` with frame coordinates from `toFrameCoords`. Catalog cards add `library` to the drag JSON, and `preview-insert` forwards it into `InsertPayload.library`.
 4. **Library thumbnails:** `list_components` writes `.divina/preview.html` + `preview.tsx` (a lazy `import()` per module) for Vite projects. `Library` loads `<proxy>/.divina/preview.html?m=<importFrom>&n=<name>` in `pointer-events-none` iframes; the page posts `{divinaPreview: "importFrom#name", ok}` to the parent.
 5. **Properties edits** send `preview-edit`. `clear-optimistic` reverts everything.
 
@@ -112,7 +115,7 @@ All are registered in `src-tauri/src/lib.rs`, and the typed wrappers are in `src
 1. `Workspace.run()` calls `run_agent`, which does the following in `agent/mod.rs`:
    1. `checkpoint::create_checkpoint`
    2. `mcp::start_mcp_server`, which is idempotent
-   3. builds the prompt with `build_prompt`, then spawns the CLI in its own process group
+   3. builds the prompt with `build_prompt(root, prompt, edits)`, then spawns the CLI in its own process group. Untagged edits get a section with candidate locations from `agent/locate.rs`; catalog inserts get the library's install command and usage.
 2. The CLI is started like this:
    - **Claude:** `claude -p <prompt> --output-format stream-json --verbose --restricted --permission-mode acceptEdits --allowedTools mcp__divina --strict-mcp-config --mcp-config <json>`, plus `--resume <id>` for later runs
    - **Codex:** `codex exec --json --sandbox workspace-write --cd <root> <prompt>`, or `codex exec resume --json -c sandbox_mode="workspace-write" <id> <prompt>` for later runs, plus `-c mcp_servers.divina.*` settings
@@ -144,6 +147,8 @@ The 10 s timeout returns an error to the agent.
 | Run command or URL behaviour | `src-tauri/src/devserver.rs`, `src-tauri/src/project.rs`, `src/components/RunSetup.tsx` |
 | Tagging | `VITE_PRELOAD`, `VITE_WRAPPER`, `NEXT_*` in `devserver.rs`; the attribute names are in the protocol files |
 | Canvas interactions | `overlay/src/*` (rebuild with `pnpm -C overlay build`) |
+| Component catalog | `src-tauri/catalog/catalog.json`, `src-tauri/src/catalog.rs`, `src/components/Library.tsx`, `src/components/AddLibrary.tsx`; regenerate thumbnails with `scripts/catalog-thumbnails/` |
+| Locating untagged drops | `buildDomAnchor` in `overlay/src/overlay.ts`, `src-tauri/src/agent/locate.rs` |
 | Agent prompt or CLI flags | `src-tauri/src/agent/mod.rs` (`build_prompt`, `configure`); stream parsing in `agent/streams.rs` |
 | MCP tools | `src-tauri/src/mcp/mod.rs` and the relay in `Workspace.tsx` |
 | Settings | `src/components/Settings.tsx` |
