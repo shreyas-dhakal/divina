@@ -2,6 +2,7 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SettingsFooter } from "@/components/Settings";
 import { api } from "@/lib/api";
 import type { ProjectInfo } from "@/shared/protocol";
 
@@ -56,7 +57,10 @@ export function Welcome({ onOpen }: { onOpen: (p: ProjectInfo) => void }) {
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-background text-foreground">
+    <div className="relative flex h-screen items-center justify-center bg-background text-foreground">
+      <div className="absolute bottom-0 left-0 w-60">
+        <SettingsFooter />
+      </div>
       <div className="flex w-[28rem] flex-col gap-6">
         <h1 className="text-2xl font-semibold">Divina</h1>
 

@@ -4,6 +4,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { AgentChat, type ChatEntry } from "@/components/AgentChat";
 import { Frame } from "@/components/Frame";
 import { Library } from "@/components/Library";
+import { SettingsFooter } from "@/components/Settings";
 import { editKey, Properties, sameRef, type Selection } from "@/components/Properties";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -274,6 +275,12 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
           <div className="min-h-0 flex-1">
             <Library root={root} onDragging={setDragging} />
           </div>
+          <SettingsFooter
+            onAgents={(list) => {
+              setAgents(list);
+              setAgent((cur) => (list.some((a) => a.kind === cur && a.loggedIn) ? cur : list.find((a) => a.loggedIn)?.kind ?? null));
+            }}
+          />
         </div>
       </ResizablePanel>
       <ResizableHandle />
