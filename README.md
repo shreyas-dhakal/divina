@@ -30,3 +30,9 @@ Checks: `pnpm build`, `pnpm --dir overlay build`, `cargo test --manifest-path sr
 | `src/App.tsx` | Host UI shell (library / frame / panel) |
 | `src/components/ui/` | shadcn components (preset `b0`) |
 | `overlay/` | In-frame overlay script, built to `overlay/dist/divina-overlay.js` (IIFE) |
+
+## License
+
+Copyright (C) 2026 Shreyas Dhakal
+
+Divina is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). If you modify Divina and distribute it, or let people use a modified version over a network, you must make your source available under the same license.
