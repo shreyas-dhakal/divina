@@ -1,4 +1,4 @@
-import { OWNERS_ATTR, SRC_ATTR, type EditRecord, type Position, type SourceRef } from "../../src/shared/protocol.ts";
+import { OWNERS_ATTR, SRC_ATTR, type DomAnchor, type EditRecord, type Position, type SourceRef } from "../../src/shared/protocol.ts";
 
 type Loc = Omit<SourceRef, "owners" | "list">;
 
@@ -45,6 +45,55 @@ export function getUserCodeTarget(element: Element): Element | null {
     current = current.parentElement;
   }
   return null;
+}
+
+export function buildDomAnchor(element: Element): DomAnchor {
+  const parts: string[] = [];
+  for (let current: Element | null = element; current && current !== document.body; current = current.parentElement) {
+    const id = current.id;
+    if (id && document.querySelectorAll(`#${CSS.escape(id)}`).length === 1) {
+      parts.unshift(`#${CSS.escape(id)}`);
+      break;
+    }
+    const tag = current.tagName.toLowerCase();
+    const siblings = current.parentElement ? [...current.parentElement.children].filter((s) => s.tagName === current!.tagName) : [];
+    parts.unshift(siblings.length > 1 ? `${tag}:nth-of-type(${siblings.indexOf(current) + 1})` : tag);
+  }
+  const own = visibleText(element);
+  const text = own || nearbyText(element);
+  const svelte = (element as Element & { __svelte_meta?: { loc?: { file?: string; line?: number; column?: number } } }).__svelte_meta?.loc;
+  let meta = svelte?.file ? `${svelte.file}:${svelte.line ?? 0}:${svelte.column ?? 0}` : undefined;
+  if (!meta) {
+    let current: Element | null = element;
+    while (current && !meta) {
+      const candidate = current as Element & { __vueParentComponent?: { type?: { __file?: string } }; __vnode?: { type?: { __file?: string } } };
+      const file = candidate.__vueParentComponent?.type?.__file ?? candidate.__vnode?.type?.__file;
+      if (file) meta = `${file}:0:0`;
+      current = current.parentElement;
+    }
+  }
+  return { selector: parts.join(" > "), tag: element.tagName.toLowerCase(), text: text.slice(0, 80), ...(meta ? { meta } : {}) };
+}
+
+function visibleText(element: Element): string {
+  const style = getComputedStyle(element);
+  if (style.display === "none" || style.visibility === "hidden") return "";
+  return (element.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
+function nearbyText(element: Element): string {
+  for (let sibling = element.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+    const text = visibleText(sibling);
+    if (text) return text;
+  }
+  for (let sibling = element.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
+    const text = visibleText(sibling);
+    if (text) return text;
+  }
+  for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+    if (/^H[1-6]$/.test(parent.tagName)) return visibleText(parent);
+  }
+  return "";
 }
 
 export function calculateDropPosition(target: Element, x: number, y: number): Position {
