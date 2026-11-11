@@ -30,6 +30,7 @@ pub fn run() {
             checkpoint::list_checkpoints,
             checkpoint::restore_checkpoint,
             checkpoint::diff_since_checkpoint,
+            checkpoint::init_git,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

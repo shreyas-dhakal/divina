@@ -151,6 +151,11 @@ export interface Checkpoint {
   label: string;
 }
 
+export interface CheckpointDiff {
+  files: string[];
+  diff: string;
+}
+
 export interface McpServerInfo {
   url: string;
 }
