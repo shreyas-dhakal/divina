@@ -9,7 +9,8 @@ pub fn open_project(path: String) -> Result<ProjectInfo, String> {
     inspect(Path::new(&path))
 }
 
-#[tauri::command]
+/// Async so the tool probes (pnpm, cargo, trunk, rustup) don't block the main thread.
+#[tauri::command(async)]
 pub fn list_templates() -> Vec<ProjectTemplate> {
     let pnpm = tool_available("pnpm", &["--version"]);
     let cargo = tool_available("cargo", &["--version"]);
