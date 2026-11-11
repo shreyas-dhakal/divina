@@ -168,6 +168,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       ...q.filter((e) => !(sameRef(e.target, record.target) && e.scope === scope && editKey(e) === editKey(record))),
       record,
     ]);
+    post({ type: "preview-edit", record });
   }
 
   async function showDiff() {

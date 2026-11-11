@@ -104,6 +104,8 @@ export type HostToOverlay =
   | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number }
   /** Host drag in progress over the frame: show the drop indicator at x/y (frame coords). */
   | { type: "insert-hover"; x: number; y: number }
+  /** Optimistic preview of a Properties edit on the element at record.target; reverted by clear-optimistic. */
+  | { type: "preview-edit"; record: EditRecord }
   | { type: "clear-optimistic" }
   | { type: "request-snapshot"; requestId: string }
   /** In-page fallback capture; answered with OverlayToHost screenshot-response. */

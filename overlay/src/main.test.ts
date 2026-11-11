@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { calculateDropPosition, resolveSourceRef } from "./overlay.js";
+import { applyPreview, calculateDropPosition, resolveSourceRef } from "./overlay.js";
 
 describe("source references", () => {
   it("reads file:line:col tags, the owner chain and a map index", () => {
@@ -40,5 +40,30 @@ describe("drop positions", () => {
     const container = document.createElement("div");
     container.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 100, top: 0, right: 100, bottom: 100, left: 0, toJSON() {} });
     expect(calculateDropPosition(container, 50, 50)).toBe("inside-end");
+  });
+});
+
+describe("optimistic Properties preview", () => {
+  const target = { file: "src/App.tsx", line: 7, col: 9, owners: [] };
+  const viewport = { preset: "mobile" as const, width: 390, height: 844 };
+  it("replaces a spacing class, mirrors it inline, edits text, and reverts exactly", () => {
+    const el = document.createElement("h1");
+    el.className = "text-2xl p-6";
+    el.textContent = "Welcome";
+    const undoPad = applyPreview(el, { id: "1", kind: "style", target, viewport, scope: "mobile-down", payload: { classes: "p-4" } });
+    expect(el.className).toBe("text-2xl p-4");
+    expect(el.style.padding).toBe("calc(var(--spacing, 0.25rem) * 4)");
+    const undoText = applyPreview(el, { id: "2", kind: "text", target, viewport, scope: "mobile-down", payload: { text: "Hi" } });
+    expect(el.textContent).toBe("Hi");
+    undoText();
+    undoPad();
+    expect([el.className, el.getAttribute("style"), el.textContent]).toEqual(["text-2xl p-6", null, "Welcome"]);
+  });
+
+  it("sets a full class list from the Tailwind classes field", () => {
+    const el = document.createElement("div");
+    el.className = "flex";
+    applyPreview(el, { id: "3", kind: "style", target, viewport, scope: "all", payload: { classes: "grid gap-2" } });
+    expect(el.className).toBe("grid gap-2");
   });
 });

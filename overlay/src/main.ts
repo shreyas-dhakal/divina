@@ -1,5 +1,5 @@
 import type { DomNode, EditRecord, HostToOverlay, OverlayMode, OverlayToHost, Position, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
-import { calculateDropPosition, getUserCodeTarget, resolveSourceRef } from "./overlay.js";
+import { applyPreview, calculateDropPosition, getUserCodeTarget, resolveSourceRef } from "./overlay.js";
 
 const hostOrigin = (() => {
   try { return new URL(document.referrer).origin; } catch { return ""; }
@@ -249,6 +249,16 @@ function receive(event: MessageEvent<HostToOverlay>) {
     case "preview-insert":
       dropInsert(message.component, message.importFrom, message.x, message.y);
       break;
+    case "preview-edit": {
+      const { file, line, col } = message.record.target;
+      const at = `${file}:${line}:${col}`;
+      const el = selected?.getAttribute("data-divina-src") === at ? selected : document.querySelector(`[data-divina-src="${CSS.escape(at)}"]`);
+      if (el instanceof HTMLElement) {
+        revert.push(applyPreview(el, message.record));
+        updateOutline(selected);
+      }
+      break;
+    }
     case "clear-optimistic":
       for (const undo of revert.splice(0).reverse()) undo();
       selected = null;
