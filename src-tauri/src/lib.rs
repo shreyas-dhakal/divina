@@ -76,6 +76,7 @@ pub fn run() {
             terminal::terminal_write,
             terminal::terminal_resize,
             terminal::terminal_close,
+            terminal::terminal_close_all,
             user_name,
         ])
         .build(tauri::generate_context!())

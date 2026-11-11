@@ -120,6 +120,8 @@ pub fn terminal_close(id: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Also called on app exit; the host calls it when a project closes.
+#[tauri::command]
 pub fn terminal_close_all() {
     let Ok(mut live) = terminals().lock() else {
         return;
