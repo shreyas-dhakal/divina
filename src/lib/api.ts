@@ -36,6 +36,7 @@ export const api = {
 
   startMcpServer: () => invoke<McpServerInfo>("start_mcp_server"),
   mcpConfigFor: (agent: AgentKind) => invoke<string>("mcp_config_for", { agent }),
+  mcpRespond: (id: string, payload: unknown) => invoke<void>("mcp_respond", { id, payload }),
 
   listComponents: (root: string) => invoke<LibraryComponent[]>("list_components", { root }),
   runInstaller: (root: string, command: string) =>

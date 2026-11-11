@@ -22,6 +22,7 @@ pub fn run() {
             agent::run_agent,
             agent::cancel_agent,
             mcp::start_mcp_server,
+            mcp::mcp_respond,
             mcp::mcp_config_for,
             library::list_components,
             library::run_installer,
