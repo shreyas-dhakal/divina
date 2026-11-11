@@ -1,0 +1,180 @@
+[
+  {
+    "id": "shadcn",
+    "name": "shadcn/ui",
+    "framework": "react",
+    "versions": ">=18",
+    "install": "pnpm dlx shadcn@latest add",
+    "importFrom": "@/components/ui",
+    "custom": false,
+    "components": [
+      {
+        "name": "Accordion",
+        "usage": "<Accordion type=\"single\" collapsible><AccordionItem value=\"item-1\"><AccordionTrigger>Section</AccordionTrigger><AccordionContent>Content</AccordionContent></AccordionItem></Accordion>",
+        "thumbnail": "/catalog/shadcn/Accordion.webp"
+      },
+      {
+        "name": "Alert",
+        "usage": "<Alert><AlertTitle>Heads up</AlertTitle><AlertDescription>Details here.</AlertDescription></Alert>",
+        "thumbnail": "/catalog/shadcn/Alert.webp"
+      },
+      {
+        "name": "Avatar",
+        "usage": "<Avatar><AvatarImage src=\"/avatar.png\" alt=\"User\" /><AvatarFallback>JD</AvatarFallback></Avatar>",
+        "thumbnail": "/catalog/shadcn/Avatar.webp"
+      },
+      {
+        "name": "Badge",
+        "usage": "<Badge>New</Badge>",
+        "thumbnail": "/catalog/shadcn/Badge.webp"
+      },
+      {
+        "name": "Button",
+        "usage": "<Button>Click me</Button>",
+        "thumbnail": "/catalog/shadcn/Button.webp"
+      },
+      {
+        "name": "Card",
+        "usage": "<Card><CardHeader><CardTitle>Title</CardTitle><CardDescription>Description</CardDescription></CardHeader><CardContent>Content</CardContent></Card>",
+        "thumbnail": "/catalog/shadcn/Card.webp"
+      },
+      {
+        "name": "Checkbox",
+        "usage": "<Checkbox id=\"terms\" />",
+        "thumbnail": "/catalog/shadcn/Checkbox.webp"
+      },
+      {
+        "name": "Input",
+        "usage": "<Input type=\"email\" placeholder=\"Email\" />",
+        "thumbnail": "/catalog/shadcn/Input.webp"
+      },
+      {
+        "name": "Label",
+        "usage": "<Label htmlFor=\"email\">Email</Label>",
+        "thumbnail": "/catalog/shadcn/Label.webp"
+      },
+      {
+        "name": "Progress",
+        "usage": "<Progress value={60} />",
+        "thumbnail": "/catalog/shadcn/Progress.webp"
+      },
+      {
+        "name": "Separator",
+        "usage": "<Separator />",
+        "thumbnail": "/catalog/shadcn/Separator.webp"
+      },
+      {
+        "name": "Skeleton",
+        "usage": "<Skeleton className=\"h-4 w-[250px]\" />",
+        "thumbnail": "/catalog/shadcn/Skeleton.webp"
+      },
+      {
+        "name": "Slider",
+        "usage": "<Slider defaultValue={[50]} max={100} step={1} />",
+        "thumbnail": "/catalog/shadcn/Slider.webp"
+      },
+      {
+        "name": "Switch",
+        "usage": "<Switch id=\"airplane-mode\" />",
+        "thumbnail": "/catalog/shadcn/Switch.webp"
+      },
+      {
+        "name": "Tabs",
+        "usage": "<Tabs defaultValue=\"account\"><TabsList><TabsTrigger value=\"account\">Account</TabsTrigger><TabsTrigger value=\"password\">Password</TabsTrigger></TabsList><TabsContent value=\"account\">Account settings</TabsContent><TabsContent value=\"password\">Change password</TabsContent></Tabs>",
+        "thumbnail": "/catalog/shadcn/Tabs.webp"
+      },
+      {
+        "name": "Textarea",
+        "usage": "<Textarea placeholder=\"Type your message here.\" />",
+        "thumbnail": "/catalog/shadcn/Textarea.webp"
+      }
+    ]
+  },
+  {
+    "id": "thaw",
+    "name": "Thaw",
+    "framework": "leptos",
+    "versions": ">=0.7",
+    "install": "cargo add thaw",
+    "importFrom": "thaw",
+    "docs": "https://thawui.vercel.app",
+    "custom": false,
+    "components": [
+      {
+        "name": "Avatar",
+        "usage": "<Avatar name=\"Jane Doe\" />",
+        "thumbnail": "/catalog/thaw/Avatar.webp"
+      },
+      {
+        "name": "Badge",
+        "usage": "<Badge>New</Badge>",
+        "thumbnail": "/catalog/thaw/Badge.webp"
+      },
+      {
+        "name": "Button",
+        "usage": "<Button>Click me</Button>",
+        "thumbnail": "/catalog/thaw/Button.webp"
+      },
+      {
+        "name": "Card",
+        "usage": "<Card>Card content</Card>",
+        "thumbnail": "/catalog/thaw/Card.webp"
+      },
+      {
+        "name": "Checkbox",
+        "usage": "<Checkbox checked=false />",
+        "thumbnail": "/catalog/thaw/Checkbox.webp"
+      },
+      {
+        "name": "Divider",
+        "usage": "<Divider />",
+        "thumbnail": "/catalog/thaw/Divider.webp"
+      },
+      {
+        "name": "Input",
+        "usage": "<Input placeholder=\"Email\" />",
+        "thumbnail": "/catalog/thaw/Input.webp"
+      },
+      {
+        "name": "Link",
+        "usage": "<Link href=\"https://example.com\">Learn more</Link>",
+        "thumbnail": "/catalog/thaw/Link.webp"
+      },
+      {
+        "name": "MessageBar",
+        "usage": "<MessageBar title=\"Saved\">Your changes are saved.</MessageBar>",
+        "thumbnail": "/catalog/thaw/MessageBar.webp"
+      },
+      {
+        "name": "ProgressBar",
+        "usage": "<ProgressBar value=60 />",
+        "thumbnail": "/catalog/thaw/ProgressBar.webp"
+      },
+      {
+        "name": "Slider",
+        "usage": "<Slider value=50 />",
+        "thumbnail": "/catalog/thaw/Slider.webp"
+      },
+      {
+        "name": "Spinner",
+        "usage": "<Spinner />",
+        "thumbnail": "/catalog/thaw/Spinner.webp"
+      },
+      {
+        "name": "Switch",
+        "usage": "<Switch checked=false />",
+        "thumbnail": "/catalog/thaw/Switch.webp"
+      },
+      {
+        "name": "Tag",
+        "usage": "<Tag>New</Tag>",
+        "thumbnail": "/catalog/thaw/Tag.webp"
+      },
+      {
+        "name": "Textarea",
+        "usage": "<Textarea placeholder=\"Write a message\" />",
+        "thumbnail": "/catalog/thaw/Textarea.webp"
+      }
+    ]
+  }
+]
