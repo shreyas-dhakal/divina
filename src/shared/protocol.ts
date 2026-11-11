@@ -180,12 +180,6 @@ export interface AgentInfo {
   version: string;
 }
 
-export type AgentEvent =
-  | { type: "text"; text: string }
-  | { type: "tool"; name: string; input: unknown }
-  | { type: "done"; ok: boolean }
-  | { type: "error"; message: string };
-
 /** What the project is built with, from package.json / Cargo.toml. */
 export interface Stack {
   language: "javascript" | "rust" | "other";

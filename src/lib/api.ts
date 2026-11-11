@@ -36,7 +36,7 @@ export const api = {
   proxyUrl: () => invoke<string>("proxy_url"),
 
   detectAgents: () => invoke<AgentInfo[]>("detect_agents"),
-  /** The brief an agent gets for these pending edits. */
+  /** The brief for the pending edits, for an interactive agent session; "" when there are none. */
   agentPrompt: (root: string, edits: EditRecord[]) => invoke<string>("agent_prompt", { root, edits }),
 
   terminalOpen: (root: string, kind: TerminalKind, cols: number, rows: number) =>
