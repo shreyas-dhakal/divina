@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { ask } from "@tauri-apps/plugin-dialog";
 import { AgentChat, type ChatEntry } from "@/components/AgentChat";
 import { Frame } from "@/components/Frame";
 import { Library } from "@/components/Library";
@@ -206,16 +205,6 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   const finishRef = useRef(finish);
   finishRef.current = finish;
 
-  useEffect(() => {
-    const un = api.onAgentEvent((ev) => {
-      if (ev.type === "text") say("agent", ev.text);
-      else if (ev.type === "tool") say("tool", `${ev.name} ${JSON.stringify(ev.input)}`.slice(0, 300));
-      else if (ev.type === "error") say("error", ev.message);
-      else finishRef.current(ev.ok);
-    });
-    return () => void un.then((f) => f());
-  }, []);
-
   async function run() {
     const prompt = draft.trim();
     if (running || !agent || (!prompt && !edits.length)) return;
@@ -228,25 +217,9 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
     if (edits.length) say("user", `Apply ${edits.length} edit(s)`);
     // The agent works from the edit list; previews left in the DOM would mix with its HMR'd result.
     post({ type: "clear-optimistic" });
-    try {
-      let cp;
-      try {
-        cp = await api.runAgent(agent, root, prompt, edits);
-      } catch (e) {
-        // Checkpoints need git; ask once, then retry.
-        if (String(e) !== "NO_GIT_REPO") throw e;
-        const ok = await ask("This project isn't a git repository. Divina keeps undo checkpoints in git. Initialise one here?", {
-          title: "Enable checkpoints",
-        });
-        if (!ok) throw new Error("Cancelled: checkpoints need a git repository.");
-        await api.initGit(root);
-        cp = await api.runAgent(agent, root, prompt, edits);
-      }
-      runCheckpoints.current.push(cp.id);
-    } catch (e) {
-      say("error", String(e));
-      setRunning(false);
-    }
+    // Headless runs were removed; agents run interactively in terminal tabs.
+    say("error", "Agent runs moved to terminal tabs.");
+    setRunning(false);
   }
   const runRef = useRef(run);
   runRef.current = run;
@@ -356,7 +329,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
                 setDraft={setDraft}
                 running={running}
                 onSend={run}
-                onCancel={() => api.cancelAgent().catch((e) => say("error", String(e)))}
+                onCancel={() => {}}
               />
             </TabsContent>
           </Tabs>
