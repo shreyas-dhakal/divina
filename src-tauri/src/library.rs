@@ -2,7 +2,7 @@
 
 use crate::protocol::{ComponentSource, DevServerLog, LibraryComponent, LogStream};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -22,35 +22,134 @@ pub fn list_components(root: String) -> Vec<LibraryComponent> {
     let root = Path::new(&root);
     let pkg = read_json(&root.join("package.json")).unwrap_or(Value::Null);
     let has_dep = |name: &str| ["dependencies", "devDependencies"].iter().any(|k| pkg[k].get(name).is_some());
-    // Next.js gets no live thumbnails (a preview route would mean writing into app/).
-    let previewable = !has_dep("next");
+    // Thumbnails are a page the Vite dev server serves from .divina/; Next.js would need a route in app/.
+    let previewable = has_dep("vite") && !has_dep("next");
     let aliases = aliases(root);
     let mut out = Vec::new();
+    // importFrom -> specifier preview.tsx can import without the project's aliases.
+    let mut specs = BTreeMap::new();
 
     let ui_dir = shadcn_ui(root, &aliases).map(|(alias, dir)| {
         for file in source_files(&dir, &[], false) {
             let stem = file.file_stem().unwrap().to_string_lossy();
-            for name in component_exports(&file).0 {
-                out.push(LibraryComponent { name, import_from: format!("{alias}/{stem}"), source: ComponentSource::Shadcn, previewable });
+            let import_from = format!("{alias}/{stem}");
+            let names = component_exports(&file).0;
+            if !names.is_empty() {
+                specs.insert(import_from.clone(), root_url(root, &file));
+            }
+            for name in names {
+                out.push(LibraryComponent { name, import_from: import_from.clone(), source: ComponentSource::Shadcn, previewable });
             }
         }
         dir
     });
 
     out.extend(packages(root, &pkg, previewable));
+    for c in out.iter().filter(|c| c.source == ComponentSource::Package) {
+        specs.insert(c.import_from.clone(), c.import_from.clone());
+    }
 
     let skip: Vec<PathBuf> = ui_dir.into_iter().collect();
     for dir in ["src", "app", "components"] {
         for file in source_files(&root.join(dir), &skip, true) {
             let rel = file.strip_prefix(root).unwrap().with_extension("");
             let import_from = to_import(&rel.to_string_lossy(), &aliases);
-            for name in component_exports(&file).0 {
+            let names = component_exports(&file).0;
+            if !names.is_empty() {
+                specs.insert(import_from.clone(), root_url(root, &file));
+            }
+            for name in names {
                 out.push(LibraryComponent { name, import_from: import_from.clone(), source: ComponentSource::Local, previewable });
             }
         }
     }
+    if previewable {
+        write_preview(root, &specs);
+    }
     out
 }
+
+/// Root-relative URL of a project file, which Vite serves without alias resolution.
+fn root_url(root: &Path, file: &Path) -> String {
+    format!("/{}", file.strip_prefix(root).unwrap().to_string_lossy())
+}
+
+/// Writes the thumbnail page the Library loads in iframes: `/.divina/preview.html?m=<importFrom>&n=<name>`.
+/// The user's own Vite server transforms it, so components render with the project's React and CSS.
+fn write_preview(root: &Path, specs: &BTreeMap<String, String>) {
+    let cfg = read_json(&root.join("components.json")).unwrap_or(Value::Null);
+    let css = cfg["tailwind"]["css"].as_str().map(str::to_string)
+        .or_else(|| ["src/index.css", "src/globals.css", "app/globals.css"].into_iter().find(|f| root.join(f).is_file()).map(str::to_string))
+        .map(|f| format!("import {};\n", json_str(&format!("/{}", f.trim_start_matches("./")))))
+        .unwrap_or_default();
+    let modules: String = specs.iter().map(|(k, v)| format!("  {}: () => import({}),\n", json_str(k), json_str(v))).collect();
+    let dir = root.join(".divina");
+    let _ = std::fs::create_dir_all(&dir);
+    for (name, body) in [
+        (".gitignore", "*\n".to_string()),
+        ("preview.html", PREVIEW_HTML.to_string()),
+        ("preview.tsx", PREVIEW_TSX.replace("/*CSS*/\n", &css).replace("/*MODULES*/\n", &modules)),
+    ] {
+        // Unchanged files stay untouched so Vite doesn't reload open previews.
+        if std::fs::read_to_string(dir.join(name)).ok().as_deref() != Some(body.as_str()) {
+            let _ = std::fs::write(dir.join(name), body);
+        }
+    }
+}
+
+fn json_str(s: &str) -> String {
+    serde_json::to_string(s).unwrap()
+}
+
+const PREVIEW_HTML: &str = r#"<!doctype html>
+<html>
+  <head><meta charset="UTF-8" /></head>
+  <body style="margin:0;height:100vh;display:grid;place-items:center;overflow:hidden;background:transparent">
+    <div id="divina-preview" style="width:max-content;max-width:640px;transform-origin:center"></div>
+    <script type="module" src="./preview.tsx"></script>
+  </body>
+</html>
+"#;
+
+const PREVIEW_TSX: &str = r#"// Generated by Divina for component thumbnails. Rewritten whenever the library is listed.
+import { Component, createElement, type ReactNode } from "react";
+import { createRoot } from "react-dom/client";
+/*CSS*/
+const modules: Record<string, () => Promise<Record<string, unknown>>> = {
+/*MODULES*/
+};
+
+class Boundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
+const q = new URLSearchParams(location.search);
+const [m, n] = [q.get("m") ?? "", q.get("n") ?? ""];
+const report = (ok: boolean) => parent.postMessage({ divinaPreview: `${m}#${n}`, ok }, "*");
+const el = document.getElementById("divina-preview")!;
+
+(modules[m]?.() ?? Promise.reject(new Error("unknown module")))
+  .then((mod) => {
+    const C = mod[n] as never;
+    // With the name as children first (Button, Badge); void elements like Input reject children.
+    createRoot(el).render(
+      createElement(Boundary, { fallback: createElement(Boundary, { fallback: null }, createElement(C)) }, createElement(C, null, n)),
+    );
+    setTimeout(() => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return report(false);
+      el.style.transform = `scale(${Math.min(1, (innerWidth - 12) / r.width, (innerHeight - 12) / r.height)})`;
+      report(true);
+    }, 300);
+  })
+  .catch(() => report(false));
+"#;
 
 /// Run a one-line install command (e.g. `pnpm dlx shadcn@latest add button`) in the project,
 /// streaming output on LOG_EVENT, then return the refreshed component list.
@@ -344,7 +443,7 @@ mod tests {
             fs::create_dir_all(p.parent().unwrap()).unwrap();
             fs::write(p, s).unwrap();
         };
-        w("package.json", r#"{"dependencies": {"react": "19", "fancy-ui": "1", "lodash": "4"}}"#);
+        w("package.json", r#"{"dependencies": {"react": "19", "fancy-ui": "1", "lodash": "4"}, "devDependencies": {"vite": "7"}}"#);
         w("tsconfig.json", "{\n // comment\n \"compilerOptions\": { /* x */ \"paths\": { \"@/*\": [\"./src/*\"], }, },\n}");
         w("components.json", r#"{"aliases": {"components": "@/components", "ui": "@/components/ui"}}"#);
         w("src/components/ui/button.tsx", "function Button() {}\nconst buttonVariants = 1\nexport { Button, buttonVariants }");
@@ -375,6 +474,9 @@ mod tests {
             s("Wrapped", "@/components/Hero", Local),
             s("Page", "@/components/Hero", Local),
         ]);
+        let preview = fs::read_to_string(dir.join(".divina/preview.tsx")).unwrap();
+        assert!(preview.contains(r#"  "@/components/ui/button": () => import("/src/components/ui/button.tsx"),"#), "{preview}");
+        assert!(preview.contains(r#"  "fancy-ui": () => import("fancy-ui"),"#), "{preview}");
         let _ = fs::remove_dir_all(&dir);
     }
 }

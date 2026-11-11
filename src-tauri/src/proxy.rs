@@ -89,13 +89,15 @@ async fn handle(req: Request<Incoming>) -> Result<Response<Body>, hyper::Error> 
     let Some(authority) = authority else {
         return Ok(text(StatusCode::BAD_GATEWAY, "dev server not running"));
     };
-    match forward(req, &authority).await {
+    // Library thumbnails (.divina/preview.html) are not editable pages.
+    let overlay = !req.uri().path().starts_with("/.divina/");
+    match forward(req, &authority, overlay).await {
         Ok(r) => Ok(r),
         Err(e) => Ok(text(StatusCode::BAD_GATEWAY, &format!("proxy: {e}"))),
     }
 }
 
-async fn forward(mut req: Request<Incoming>, authority: &str) -> Result<Response<Body>, String> {
+async fn forward(mut req: Request<Incoming>, authority: &str, overlay: bool) -> Result<Response<Body>, String> {
     // ponytail: one upstream connection per request; pool if page loads get slow.
     let stream = TcpStream::connect(authority).await.map_err(|e| e.to_string())?;
     let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream)).await.map_err(|e| e.to_string())?;
@@ -119,7 +121,7 @@ async fn forward(mut req: Request<Incoming>, authority: &str) -> Result<Response
     }
 
     let is_html = resp.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("text/html"));
-    if !is_html {
+    if !is_html || !overlay {
         return Ok(resp.map(|b| b.boxed()));
     }
     let (mut parts, body) = resp.into_parts();

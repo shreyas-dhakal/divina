@@ -12,7 +12,9 @@ pub const LOG_EVENT: &str = "devserver://log";
 
 /// Wrapper Vite config written to `<root>/.divina/` and passed with `--config`, so the user's
 /// own config is loaded unchanged. It swaps `react/jsx-dev-runtime` for a shim that tags every
-/// element with SRC_ATTR / OWNERS_ATTR (see src/shared/protocol.ts). Dev-only by construction.
+/// element with SRC_ATTR / OWNERS_ATTR (see src/shared/protocol.ts). It also adds the Library's
+/// thumbnail page to the dep scan, so a thumbnail's new package doesn't re-optimise and reload the
+/// frame. Dev-only by construction.
 const VITE_WRAPPER: &str = r#"import { loadConfigFromFile, mergeConfig } from "vite";
 const ROOT = process.cwd();
 const ID = "\0divina-jsx-dev-runtime";
@@ -39,7 +41,10 @@ export function jsxDEV(type, props, key, isStatic, source, self) {
 }`;
 export default async (env) => {
   const user = (await loadConfigFromFile(env, undefined, ROOT))?.config ?? {};
-  return mergeConfig(user, {
+  // Setting entries replaces Vite's default scan (build input, else every .html), so keep that.
+  const input = user.build?.rolldownOptions?.input ?? user.build?.rollupOptions?.input;
+  const entries = [user.optimizeDeps?.entries ?? (input && typeof input === "object" && !Array.isArray(input) ? Object.values(input) : input) ?? "**/*.html"].flat();
+  const config = mergeConfig(user, {
     plugins: [{
       name: "divina-source-tags",
       enforce: "pre",
@@ -47,6 +52,8 @@ export default async (env) => {
       load: (id) => (id === ID ? runtime : null),
     }],
   });
+  config.optimizeDeps = { ...config.optimizeDeps, entries: [...entries, ".divina/preview.html"] };
+  return config;
 };
 "#;
 

@@ -285,7 +285,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
             <span className="truncate text-muted-foreground" title={root}>{root.split("/").pop()}</span>
           </div>
           <div className="min-h-0 flex-1">
-            <Library root={root} onDragging={setDragging} />
+            <Library root={root} previewUrl={url} onDragging={setDragging} />
           </div>
           <SettingsFooter
             onAgents={(list) => {

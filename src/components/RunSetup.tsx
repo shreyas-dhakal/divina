@@ -91,7 +91,7 @@ export function RunSetup({
             <span>
               Click-to-code source tagging
               <span className="block text-xs text-muted-foreground">
-                Maps clicks in the preview to exact lines of code. Your command is unchanged; Divina adds a dev-only <code className="font-mono">NODE_OPTIONS</code> preload for Vite and Next.js and keeps its files in the git-ignored <code className="font-mono">.divina/</code> folder.
+                Maps clicks in the preview to exact lines of code, and on Vite stops component thumbnails from reloading the preview. Your command is unchanged; Divina adds a dev-only <code className="font-mono">NODE_OPTIONS</code> preload for Vite and Next.js and keeps its files in the git-ignored <code className="font-mono">.divina/</code> folder.
               </span>
             </span>
           </label>

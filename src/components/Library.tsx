@@ -7,8 +7,11 @@ import type { LibraryComponent } from "@/shared/protocol";
 
 const SOURCES: Record<LibraryComponent["source"], string> = { shadcn: "shadcn/ui", package: "Packages", local: "Project" };
 
-export function Library({ root, onDragging }: { root: string; onDragging: (d: boolean) => void }) {
+/** `previewUrl` is the proxied dev server; Vite projects get live thumbnails from it. */
+export function Library({ root, previewUrl, onDragging }: { root: string; previewUrl: string | null; onDragging: (d: boolean) => void }) {
   const [components, setComponents] = useState<LibraryComponent[]>([]);
+  /** Thumbnail result per `importFrom#name`; failed or empty ones fall back to the name. */
+  const [rendered, setRendered] = useState<Record<string, boolean>>({});
   const [query, setQuery] = useState("");
   const [command, setCommand] = useState("");
   const [output, setOutput] = useState<string[]>([]);
@@ -18,7 +21,15 @@ export function Library({ root, onDragging }: { root: string; onDragging: (d: bo
   useEffect(() => {
     refresh();
     const un = api.onInstallerLog((l) => setOutput((o) => [...o.slice(-200), l.line]));
-    return () => void un.then((f) => f());
+    const onMessage = (e: MessageEvent) => {
+      const { divinaPreview: key, ok } = e.data ?? {};
+      if (typeof key === "string") setRendered((r) => ({ ...r, [key]: ok === true }));
+    };
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      void un.then((f) => f());
+    };
   }, [root]);
 
   async function install() {
@@ -48,9 +59,13 @@ export function Library({ root, onDragging }: { root: string; onDragging: (d: bo
           return (
             <div key={src} className="mb-3">
               <h3 className="px-2 pb-1 text-xs font-medium text-muted-foreground uppercase">{SOURCES[src]}</h3>
-              {group.map((c) => (
+              {group.map((c) => {
+                const key = `${c.importFrom}#${c.name}`;
+                const thumb = c.previewable && previewUrl && rendered[key] !== false;
+                const src = previewUrl && `${new URL("/.divina/preview.html", previewUrl)}?m=${encodeURIComponent(c.importFrom)}&n=${encodeURIComponent(c.name)}`;
+                return (
                 <div
-                  key={c.importFrom + c.name}
+                  key={key}
                   draggable
                   onDragStart={(e) => {
                     e.dataTransfer.setData(DRAG_MIME, JSON.stringify(c));
@@ -60,9 +75,23 @@ export function Library({ root, onDragging }: { root: string; onDragging: (d: bo
                   className="cursor-grab rounded px-2 py-1 hover:bg-muted"
                   title={c.importFrom}
                 >
+                  {thumb && (
+                    <div className="relative mb-1 h-20 overflow-hidden rounded border bg-background">
+                      {/* No pointer events, so the drag starts on this row, not inside the iframe. */}
+                      <iframe
+                        src={src!}
+                        loading="lazy"
+                        tabIndex={-1}
+                        className={`pointer-events-none size-full ${rendered[key] ? "" : "opacity-0"}`}
+                        // A page that never reports (not a Vite server, a 404) falls back to the name.
+                        onLoad={() => setTimeout(() => setRendered((r) => (key in r ? r : { ...r, [key]: false })), 5000)}
+                      />
+                    </div>
+                  )}
                   {c.name}
                 </div>
-              ))}
+                );
+              })}
             </div>
           );
         })}

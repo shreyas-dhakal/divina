@@ -57,7 +57,7 @@ You can change all of this later from **Run command…** under the preview.
 - **Click** an element to select it. **Drag** it to move it; the purple line shows where it will land.
 - **Resize** with the corner handle, and **double-click** text to edit it.
 - **Properties** (right panel): change text, classes, padding, margin, gap, width and height.
-- **Library** (left panel): drag a component into the frame. To install more, type a command in the installer box, for example `pnpm dlx shadcn@latest add card`.
+- **Library** (left panel): drag a component into the frame. On Vite projects each component shows a live thumbnail rendered by your dev server. To install more, type a command in the installer box, for example `pnpm dlx shadcn@latest add card`.
 
 Each change previews instantly and joins **Pending edits**.
 

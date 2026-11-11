@@ -103,6 +103,7 @@ This needs source tagging (see Known limits).
 - **Packages:** React packages in `package.json`, found by reading each package's type declarations for PascalCase exports and following `export *`. Results are cached per hash of package.json and the lockfile.
 - **Local:** your own exported PascalCase components in `src/`, `app/` and `components/`. Route files, tests and stories are skipped.
 - **Import paths** use the project's tsconfig or jsconfig path aliases.
+- **Live thumbnails (Vite projects):** each item shows the component rendered by the user's own dev server, with the project's CSS (components.json `tailwind.css`, else `src/index.css`, `src/globals.css` or `app/globals.css`). It renders with no props and its name as children, retrying without children if that throws. Thumbnails load lazily and are scaled to fit. One that fails, renders nothing or never reports within 5 s shows the name only. The page is `.divina/preview.html` + `preview.tsx`, rewritten (only when changed) each time the library is listed. The proxy doesn't inject the overlay into `/.divina/` pages.
 - **Installer box:** runs one single-line command that the user types, such as `pnpm dlx shadcn@latest add button` or `pnpm add some-ui-lib`, through the login shell in the project folder. Empty or multi-line input is refused. The output streams into the box and the list refreshes afterwards.
 
 ### Settings (bottom-left corner)
@@ -121,7 +122,7 @@ The row shows an initial, the macOS account's full name (from `id -F`, falling b
 
 When the Click-to-code source tagging checkbox is on, Divina adds dev-only `NODE_OPTIONS=--require` preloads to the user's command. The command itself is unchanged.
 
-- **Vite:** `.divina/vite-preload.cjs` affects only a process whose script is `vite/bin/vite.js` running the dev server (no subcommand, or `dev`, `serve` or a flag) without its own `--config`/`-c`. It appends `--config .divina/vite.config.mjs`. That wrapper loads the user's own Vite config unchanged and swaps `react/jsx-dev-runtime` for a shim that tags elements. This also works when Vite is started indirectly, for example by `pnpm dev`, `composer run dev` or concurrently.
+- **Vite:** `.divina/vite-preload.cjs` affects only a process whose script is `vite/bin/vite.js` running the dev server (no subcommand, or `dev`, `serve` or a flag) without its own `--config`/`-c`. It appends `--config .divina/vite.config.mjs`. That wrapper loads the user's own Vite config unchanged, swaps `react/jsx-dev-runtime` for a shim that tags elements, and adds `.divina/preview.html` to `optimizeDeps.entries` (keeping the user's entries, else the build input, else `**/*.html`) so Library thumbnails don't trigger a re-optimise reload. This also works when Vite is started indirectly, for example by `pnpm dev`, `composer run dev` or concurrently.
 - **Next.js:** `.divina/next-preload.cjs` wraps Next's loaded config in memory, adding a loader that gives the project's own `.tsx`/`.jsx` files an `@jsxImportSource` pragma pointing at a tagging runtime. This covers both Turbopack and webpack.
 - **Tags on each element:**
   - `data-divina-src="file:line:col"`, a project-relative usage site. When a component forwards its props, its usage site wins.
@@ -171,6 +172,7 @@ Checkpoints are git objects under `refs/divina/checkpoints/<n>`, not files.
 - **Screenshot fallback:** the native screenshot exists only on macOS. Elsewhere the in-page capture is used, which can miss cross-origin styles.
 - **Not notarized:** see Install and release.
 - **macOS first.** Windows and Linux aren't polished.
+- **Thumbnails are Vite-only.** Next.js and non-Vite projects show names. Components that need props or a parent context (a `DialogTrigger` outside `Dialog`) show names too. Without source tagging, the first thumbnail that imports a not-yet-optimised package can make Vite re-optimise and reload the frame once (Vite caches the result, so it doesn't repeat until dependencies change). With tagging on, the wrapper adds the thumbnail page to Vite's dep scan, so this doesn't happen.
 - **opencode detection costs a model call:** it runs one tiny model call per detection, because stored credentials don't prove the model works.
 
 ## Not built (non-goals for now)

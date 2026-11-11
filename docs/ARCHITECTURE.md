@@ -23,7 +23,7 @@ How the product in `docs/PRODUCT.md` is built. Read that first. This file maps b
                                         ├─ agent/         detect + run CLIs, stream events, sessions
                                         ├─ mcp/           local MCP server the agent calls
                                         ├─ checkpoint.rs  git-object snapshots, restore, diff
-                                        ├─ library.rs     component discovery, installer
+                                        ├─ library.rs     component discovery, installer, thumbnail page
                                         └─ snapshot.rs    native WKWebView screenshot
 
  user's command ($SHELL -lc) ─► user's dev server ◄─ proxy ◄─ iframe
@@ -104,7 +104,8 @@ All are registered in `src-tauri/src/lib.rs`, and the typed wrappers are in `src
    - sends `edit` records
 2. The host stamps each record with the current viewport and `scopeFor` (`src/lib/viewport.ts`).
 3. **Library drags** don't send pointer events into the iframe (`dragDropEnabled=false` in `tauri.conf.json` keeps HTML5 drag in the webview). The host sends `insert-hover` and `preview-insert` with frame coordinates from `toFrameCoords`.
-4. **Properties edits** send `preview-edit`. `clear-optimistic` reverts everything.
+4. **Library thumbnails:** `list_components` writes `.divina/preview.html` + `preview.tsx` (a lazy `import()` per module) for Vite projects. `Library` loads `<proxy>/.divina/preview.html?m=<importFrom>&n=<name>` in `pointer-events-none` iframes; the page posts `{divinaPreview: "importFrom#name", ok}` to the parent.
+5. **Properties edits** send `preview-edit`. `clear-optimistic` reverts everything.
 
 ### Agent run
 
