@@ -8,6 +8,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const root = resolve(import.meta.dirname, '../..');
 const shadcn = ['Accordion','Alert','Avatar','Badge','Button','Card','Checkbox','Input','Label','Progress','Separator','Skeleton','Slider','Switch','Tabs','Textarea'];
+const shadcnVue = shadcn;
+const shadcnSvelte = shadcn;
 const thaw = ['Avatar','Badge','Button','Card','Checkbox','Divider','Input','Link','MessageBar','ProgressBar','Slider','Spinner','Switch','Tag','Textarea'];
 let browserPath = process.env.CHROMIUM_EXECUTABLE;
 if (!browserPath && process.platform === 'darwin') {
@@ -115,6 +117,40 @@ try {
     }
   }
   if (skipped.length) console.warn(`Skipped Thaw thumbnails: ${skipped.join(', ')}`);
+
+  const docsSkipped = { 'shadcn-vue': [], 'shadcn-svelte': [] };
+  const docsLibraries = [
+    ['shadcn-vue', shadcnVue, 'https://www.shadcn-vue.com/docs/components'],
+    ['shadcn-svelte', shadcnSvelte, 'https://shadcn-svelte.com/docs/components'],
+  ];
+  for (const [library, names, base] of docsLibraries) {
+    await mkdir(join(root, 'public/catalog', library), { recursive: true });
+    const docsPage = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1 });
+    for (const name of names) {
+      const destination = join(root, 'public/catalog', library, `${name}.webp`);
+      await rm(destination, { force: true });
+      try {
+        const kebab = name.replace(/[A-Z]/g, (letter, index) => `${index ? '-' : ''}${letter.toLowerCase()}`);
+        await docsPage.goto(`${base}/${kebab}`, { waitUntil: 'networkidle', timeout: 30000 });
+        const preview = docsPage.locator('[data-slot="component-preview"]').first().locator('[data-slot="preview"]').last();
+        await preview.waitFor({ state: 'visible', timeout: 10000 });
+        const image = await preview.screenshot({ type: 'png', timeout: 10000 });
+        await sharp(image).resize(440, 180, { fit: 'contain', background: '#ffffff' }).extend({ top: 30, bottom: 30, left: 20, right: 20, background: '#ffffff' }).webp({ quality: 85 }).toFile(destination);
+      } catch {
+        docsSkipped[library].push(name);
+        await rm(destination, { force: true });
+        console.warn(`Skipping ${library} ${name}: docs preview not reachable`);
+      }
+    }
+    await docsPage.close();
+  }
+  for (const [library, names] of Object.entries(docsSkipped)) {
+    if (names.length) console.warn(`Skipped ${library} thumbnails: ${names.join(', ')}`);
+  }
+  for (const [library, names] of docsLibraries) {
+    const files = await readdir(join(root, 'public/catalog', library)).catch(() => []);
+    console.log(`${library}: ${files.filter(file => file.endsWith('.webp')).length} thumbnails generated`);
+  }
 } finally {
   await browser?.close(); server?.kill(); await rm(scratch,{recursive:true,force:true});
 }

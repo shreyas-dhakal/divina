@@ -344,6 +344,17 @@ mod tests {
                 .iter()
                 .any(|l| l.id == "shadcn")
         );
+        let vue = temp();
+        write(&vue.join("package.json"), r#"{"dependencies":{"vue":"^3.5.0"}}"#);
+        let vue_catalog = list_catalog_at(&vue, &temp());
+        assert!(vue_catalog.iter().any(|l| l.id == "shadcn-vue"));
+        assert!(vue_catalog.iter().all(|l| l.id != "shadcn"));
+
+        let svelte = temp();
+        write(&svelte.join("package.json"), r#"{"dependencies":{"svelte":"^5.0.0"}}"#);
+        let svelte_catalog = list_catalog_at(&svelte, &temp());
+        assert!(svelte_catalog.iter().any(|l| l.id == "shadcn-svelte"));
+        assert!(svelte_catalog.iter().all(|l| l.id != "shadcn"));
     }
     #[test]
     fn saves_project_and_global_upserts() {
