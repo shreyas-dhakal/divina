@@ -29,6 +29,8 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 tauri-plugin-dialog = "2"
 base64 = "0.21"
+portable-pty = "0.9"
+libc = "0.2"
 semver = "1"
 toml = "0.8"
 
