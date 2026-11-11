@@ -1,4 +1,5 @@
 mod agent;
+mod catalog;
 mod checkpoint;
 mod devserver;
 mod library;
@@ -12,7 +13,12 @@ mod snapshot;
 /// for every child process (dev server, installer, agents, git).
 fn use_login_shell_path() {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let Ok(out) = std::process::Command::new(shell).args(["-lc", "printf %s \"$PATH\""]).output() else { return };
+    let Ok(out) = std::process::Command::new(shell)
+        .args(["-lc", "printf %s \"$PATH\""])
+        .output()
+    else {
+        return;
+    };
     let path = String::from_utf8_lossy(&out.stdout);
     if out.status.success() && !path.is_empty() {
         // SAFETY: called once at startup before any other thread exists.
@@ -57,6 +63,9 @@ pub fn run() {
             mcp::mcp_config_for,
             library::list_components,
             library::run_installer,
+            catalog::detect_stack,
+            catalog::list_catalog,
+            catalog::save_library,
             checkpoint::create_checkpoint,
             checkpoint::list_checkpoints,
             checkpoint::restore_checkpoint,
