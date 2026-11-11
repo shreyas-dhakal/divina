@@ -1,4 +1,4 @@
-use crate::protocol::{DevServerLog, DevServerStatus, Framework, LogStream, PackageManager};
+use crate::protocol::{DevServerLog, DevServerStatus, LogStream};
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Mutex;
@@ -124,70 +124,49 @@ struct State {
 
 static STATE: Mutex<State> = Mutex::new(State { status: DevServerStatus::Stopped, generation: 0, pid: None });
 
+/// Dev-only `--require` hook: when the process is Vite's dev server, point it at VITE_WRAPPER.
+/// Only argv of that one process changes; the user's command line is run exactly as written.
+const VITE_PRELOAD: &str = r#"// Divina dev-only hook (NODE_OPTIONS --require): Vite dev server -> tagging wrapper config.
+const path = require("path");
+const a = process.argv;
+const dev = !a[2] || a[2] === "dev" || a[2] === "serve" || a[2].startsWith("-");
+if (/[\\/]vite[\\/]bin[\\/]vite\.js$/.test(a[1] || "") && dev && !a.includes("--config") && !a.includes("-c")) {
+  a.push("--config", path.join(__dirname, "vite.config.mjs"));
+}
+"#;
+
+/// Runs the project's saved run command exactly as the user wrote it, in their login shell.
+/// With `tagging`, Divina only adds NODE_OPTIONS preloads (VITE_PRELOAD, NEXT_PRELOAD).
 #[tauri::command]
 pub async fn start_dev_server(app: AppHandle, root: String) -> Result<DevServerStatus, String> {
     let info = crate::project::open_project(root)?; // also stops any running server
-    let run = info.run.clone().unwrap_or_default();
-    if info.framework == Framework::Custom || !run.command.trim().is_empty() {
-        if run.command.trim().is_empty() {
-            return Err("NEEDS_RUN_CONFIG".into());
-        }
-        // The user's own command, through the login shell so php/composer/python/rbenv resolve.
-        // ponytail: no source tagging here; selection still works, edits fall back to DOM + screenshots.
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-        let mut cmd = tokio::process::Command::new(shell);
-        cmd.args(["-lc", &run.command]).current_dir(&info.root);
-        return launch(app, cmd, &info.root, run.url.filter(|u| !u.trim().is_empty())).await;
-    }
-    let pkg: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(Path::new(&info.root).join("package.json")).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
-    let dev = pkg["scripts"]["dev"].as_str().ok_or("package.json has no \"dev\" script")?;
-
-    let mut args: Vec<&str> = vec!["run", "dev"];
-    if info.package_manager == PackageManager::Npm {
-        args.push("--");
-    }
-    if info.framework == Framework::Vite {
-        let dir = Path::new(&info.root).join(".divina");
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        std::fs::write(dir.join(".gitignore"), "*\n").map_err(|e| e.to_string())?;
-        std::fs::write(dir.join("vite.config.mjs"), VITE_WRAPPER).map_err(|e| e.to_string())?;
-        // A custom `dev` script can't take --config, so run Vite itself; the wrapper still loads the user's config.
-        // ponytail: drops whatever else that script did (env setup, parallel tasks).
-        if !(dev == "vite" || dev.starts_with("vite ")) {
-            args = match info.package_manager {
-                PackageManager::Npm => vec!["exec", "--", "vite"],
-                PackageManager::Bun => vec!["x", "vite"],
-                _ => vec!["exec", "vite"],
-            };
-        }
-        args.extend(["--config", ".divina/vite.config.mjs"]);
-    }
-    let mut node_options = std::env::var("NODE_OPTIONS").unwrap_or_default();
-    if info.framework == Framework::Next {
+    let Some(run) = info.run.clone().filter(|r| !r.command.trim().is_empty()) else {
+        return Err("NEEDS_RUN_CONFIG".into());
+    };
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let mut cmd = tokio::process::Command::new(shell);
+    cmd.args(["-lc", &run.command]).current_dir(&info.root);
+    if run.tagging {
         let dir = Path::new(&info.root).join(".divina");
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let root_js = serde_json::to_string(&format!("{}/", info.root)).map_err(|e| e.to_string())?;
         for (name, body) in [
             (".gitignore", "*\n".to_string()),
+            ("vite.config.mjs", VITE_WRAPPER.to_string()),
+            ("vite-preload.cjs", VITE_PRELOAD.to_string()),
             ("next-preload.cjs", NEXT_PRELOAD.to_string()),
             ("pragma-loader.cjs", NEXT_LOADER.to_string()),
             ("jsx-dev-runtime.mjs", NEXT_RUNTIME.replace("__ROOT__", &root_js)),
         ] {
             std::fs::write(dir.join(name), body).map_err(|e| e.to_string())?;
         }
-        node_options = format!("{node_options} --require {}", serde_json::to_string(&dir.join("next-preload.cjs")).map_err(|e| e.to_string())?);
+        let mut node_options = std::env::var("NODE_OPTIONS").unwrap_or_default();
+        for preload in ["vite-preload.cjs", "next-preload.cjs"] {
+            node_options += &format!(" --require {}", serde_json::to_string(&dir.join(preload)).map_err(|e| e.to_string())?);
+        }
+        cmd.env("NODE_OPTIONS", node_options.trim());
     }
-    let pm = match info.package_manager {
-        PackageManager::Pnpm => "pnpm",
-        PackageManager::Npm => "npm",
-        PackageManager::Yarn => "yarn",
-        PackageManager::Bun => "bun",
-    };
-    let mut cmd = tokio::process::Command::new(pm);
-    cmd.args(&args).current_dir(&info.root).env("NODE_OPTIONS", node_options.trim());
-    launch(app, cmd, &info.root, None).await
+    launch(app, cmd, &info.root, run.url.filter(|u| !u.trim().is_empty())).await
 }
 
 /// Starts `cmd` as the project's dev server. The preview URL is `fixed_url` once it accepts

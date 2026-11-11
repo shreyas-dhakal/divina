@@ -44,7 +44,7 @@ pub async fn create_project(parent: String, name: String) -> Result<ProjectInfo,
             String::from_utf8_lossy(&out.stderr)
         ));
     }
-    save_run_config(dir.to_string_lossy().into_owned(), RunConfig::default())
+    inspect(&dir)
 }
 
 /// Saved run config, if the user has confirmed one for this project.
@@ -64,7 +64,7 @@ pub fn save_run_config(root: String, run: RunConfig) -> Result<ProjectInfo, Stri
     inspect(Path::new(&root))
 }
 
-/// Best guess at how to serve a non-Vite/Next project, from marker files.
+/// Placeholder hint for the setup dialog, from marker files. Never run on its own.
 fn suggest(root: &Path, pkg: &Value) -> RunConfig {
     let at = |f: &str| root.join(f).exists();
     let (command, url) = if at("artisan") {
@@ -74,7 +74,7 @@ fn suggest(root: &Path, pkg: &Value) -> RunConfig {
     } else if at("bin/rails") {
         ("bin/rails server", Some("http://127.0.0.1:3000"))
     } else if pkg["scripts"]["dev"].is_string() {
-        ("npm run dev", None)
+        (if at("pnpm-lock.yaml") { "pnpm dev" } else if at("yarn.lock") { "yarn dev" } else if at("bun.lock") { "bun dev" } else { "npm run dev" }, None)
     } else if pkg["scripts"]["start"].is_string() {
         ("npm start", None)
     } else if at("index.php") || at("public/index.php") {
@@ -83,7 +83,7 @@ fn suggest(root: &Path, pkg: &Value) -> RunConfig {
     } else {
         ("", None)
     };
-    RunConfig { command: command.into(), url: url.map(Into::into) }
+    RunConfig { command: command.into(), url: url.map(Into::into), tagging: false }
 }
 
 fn inspect(root: &Path) -> Result<ProjectInfo, String> {
@@ -118,13 +118,14 @@ fn inspect(root: &Path) -> Result<ProjectInfo, String> {
     } else {
         PackageManager::Npm
     };
-    let suggested_run = if framework == Framework::Custom { suggest(&root, &pkg) } else { RunConfig::default() };
+    let suggested_run = suggest(&root, &pkg);
     Ok(ProjectInfo {
         run: load_run(&root),
         root: root.to_string_lossy().into_owned(),
         framework,
         package_manager,
         tailwind: has("tailwindcss"),
+        react: has("react"),
         suggested_run,
     })
 }
@@ -137,11 +138,12 @@ mod tests {
     fn detects_project() {
         let dir = std::env::temp_dir().join(format!("divina-proj-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("package.json"), r#"{"dependencies":{"react":"19"},"devDependencies":{"vite":"8","tailwindcss":"4"}}"#).unwrap();
+        std::fs::write(dir.join("package.json"), r#"{"scripts":{"dev":"vite"},"dependencies":{"react":"19"},"devDependencies":{"vite":"8","tailwindcss":"4"}}"#).unwrap();
         std::fs::write(dir.join("pnpm-lock.yaml"), "").unwrap();
         let info = inspect(&dir).unwrap();
         assert_eq!((info.framework, info.package_manager, info.tailwind), (Framework::Vite, PackageManager::Pnpm, true));
         assert_eq!(info.run, None);
+        assert_eq!(info.suggested_run.command, "pnpm dev");
         std::fs::write(dir.join("artisan"), "").unwrap();
         let info = inspect(&dir).unwrap();
         assert_eq!(info.framework, Framework::Custom);

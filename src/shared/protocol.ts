@@ -139,16 +139,20 @@ export interface ProjectInfo {
   framework: "vite" | "next" | "custom";
   packageManager: "pnpm" | "npm" | "yarn" | "bun";
   tailwind: boolean;
-  /** Saved in .divina/run.json; null until the user confirms how to run the project. */
+  react: boolean;
+  /** Saved in .divina/run.json; null until the user writes how to run the project. */
   run: RunConfig | null;
+  /** Placeholder hint only; never run unless the user types it. */
   suggestedRun: RunConfig;
 }
 
-/** How to serve a project. Empty `command` = Divina's built-in Vite/Next start with source tagging. */
+/** How to serve a project, written by the user and run verbatim in their login shell. */
 export interface RunConfig {
   command: string;
   /** Preview URL; when absent, the first local URL the command prints. */
   url?: string | null;
+  /** Click-to-code source tagging via NODE_OPTIONS preloads (React + Vite/Next). */
+  tagging: boolean;
 }
 
 export type DevServerStatus =

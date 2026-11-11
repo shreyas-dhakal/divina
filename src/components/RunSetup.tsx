@@ -5,9 +5,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import type { ProjectInfo } from "@/shared/protocol";
 
-const EXAMPLES = ["php artisan serve", "composer run dev", "python manage.py runserver", "bin/rails server", "npm run dev"];
-
-/** Asks how to serve the project for the preview, and saves it to .divina/run.json. */
+/** Asks the user to write how to serve the project; saved to .divina/run.json and run verbatim. */
 export function RunSetup({
   project,
   open,
@@ -19,89 +17,72 @@ export function RunSetup({
   onSaved: (p: ProjectInfo) => void;
   onCancel: () => void;
 }) {
-  const known = project.framework !== "custom";
-  const start = project.run ?? project.suggestedRun;
-  const [custom, setCustom] = useState(!known || !!start.command);
-  const [command, setCommand] = useState(start.command);
-  const [url, setUrl] = useState(start.url ?? "");
+  const [command, setCommand] = useState("");
+  const [url, setUrl] = useState("");
+  const [tagging, setTagging] = useState(false);
   const [error, setError] = useState("");
 
+  // Editing shows what the user saved before; a first setup starts empty.
   useEffect(() => {
     if (!open) return;
-    setCustom(!known || !!start.command);
-    setCommand(start.command);
-    setUrl(start.url ?? "");
+    setCommand(project.run?.command ?? "");
+    setUrl(project.run?.url ?? "");
+    setTagging(project.run?.tagging ?? false);
     setError("");
   }, [open]);
 
   async function save() {
-    const run = custom ? { command: command.trim(), url: url.trim() || null } : { command: "", url: null };
-    if (custom && !run.command) return setError("Enter the command that starts this project.");
+    if (!command.trim()) return setError("Write the command that starts this project.");
     try {
-      onSaved(await api.saveRunConfig(project.root, run));
+      onSaved(await api.saveRunConfig(project.root, { command: command.trim(), url: url.trim() || null, tagging: tagging && project.react }));
     } catch (e) {
       setError(String(e));
     }
   }
 
-  const name = project.framework === "next" ? "Next.js" : "Vite";
+  const hint = project.suggestedRun;
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-lg">
         <DialogTitle>Set up preview</DialogTitle>
         <DialogDescription>
-          {known
-            ? `This is a React + ${name} project. Divina can start it for you with source tagging, so clicks map to exact lines of code.`
-            : "How do you start this project's dev server? Divina runs it in this folder, in your login shell."}
+          Write the command that starts this project's dev server. Divina runs exactly this, in this folder, in your login shell.
         </DialogDescription>
 
-        {known && (
-          <div className="flex flex-col gap-2">
-            <label className="flex items-center gap-2">
-              <input type="radio" checked={!custom} onChange={() => setCustom(false)} />
-              Let Divina start it (recommended)
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="radio" checked={custom} onChange={() => setCustom(true)} />
-              Use my own command (no source tagging)
-            </label>
-          </div>
-        )}
+        <label className="flex flex-col gap-1">
+          <span className="font-medium">Run command</span>
+          <Input
+            autoFocus
+            className="font-mono"
+            placeholder={hint.command ? `e.g. ${hint.command}` : "e.g. php artisan serve"}
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+          />
+        </label>
 
-        {custom && (
-          <div className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1">
-              <span className="font-medium">Run command</span>
-              <Input
-                autoFocus
-                className="font-mono"
-                placeholder="php artisan serve"
-                value={command}
-                onChange={(e) => setCommand(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && save()}
-              />
-              <span className="flex flex-wrap gap-1 text-xs text-muted-foreground">
-                {EXAMPLES.map((ex) => (
-                  <button key={ex} type="button" className="rounded bg-muted px-1 font-mono hover:text-foreground" onClick={() => setCommand(ex)}>
-                    {ex}
-                  </button>
-                ))}
+        <label className="flex flex-col gap-1">
+          <span className="font-medium">Preview URL <span className="font-normal text-muted-foreground">(optional)</span></span>
+          <Input
+            className="font-mono"
+            placeholder={hint.url ? `e.g. ${hint.url}` : "Detected from the command's output"}
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+          />
+          <span className="text-xs text-muted-foreground">Set this when the command starts more than one server.</span>
+        </label>
+
+        {project.react && (
+          <label className="flex items-start gap-2">
+            <input type="checkbox" className="mt-1" checked={tagging} onChange={(e) => setTagging(e.target.checked)} />
+            <span>
+              Click-to-code source tagging
+              <span className="block text-xs text-muted-foreground">
+                Maps clicks in the preview to exact lines of code. Your command is unchanged; Divina adds a dev-only <code className="font-mono">NODE_OPTIONS</code> preload for Vite and Next.js and keeps its files in the git-ignored <code className="font-mono">.divina/</code> folder.
               </span>
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="font-medium">Preview URL <span className="font-normal text-muted-foreground">(optional)</span></span>
-              <Input
-                className="font-mono"
-                placeholder="Detected from the command's output"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && save()}
-              />
-              <span className="text-xs text-muted-foreground">
-                Set this when the command starts several servers, e.g. <code className="font-mono">http://127.0.0.1:8000</code> for Laravel.
-              </span>
-            </label>
-          </div>
+            </span>
+          </label>
         )}
 
         {error && <p className="text-destructive">{error}</p>}
