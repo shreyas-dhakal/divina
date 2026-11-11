@@ -319,7 +319,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
               <button className="flex-1 truncate px-2 py-1 text-left" onClick={() => setLogsOpen(!logsOpen)}>
                 {logsOpen ? "▾" : "▸"} Dev server: {info.run ? status.state : "not set up"}
                 {status.state === "running" && ` · ${status.url}`}
-                {info.run?.command && ` · ${info.run.command}`}
+                {info.run?.command && ` · ${info.run.command.split("\n")[0]}${info.run.command.includes("\n") ? " …" : ""}`}
               </button>
               <Button size="xs" variant="ghost" onClick={() => setSetupOpen(true)}>
                 {info.run ? "Run command…" : "Set up preview"}

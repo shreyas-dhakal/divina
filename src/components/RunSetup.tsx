@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import type { ProjectInfo } from "@/shared/protocol";
 
@@ -51,14 +52,25 @@ export function RunSetup({
 
         <label className="flex flex-col gap-1">
           <span className="font-medium">Run command</span>
-          <Input
+          <Textarea
             autoFocus
+            rows={3}
             className="font-mono"
             placeholder={hint.command ? `e.g. ${hint.command}` : "e.g. php artisan serve"}
             value={command}
             onChange={(e) => setCommand(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && save()}
+            onKeyDown={(e) => {
+              if (!((e.metaKey || e.ctrlKey) && e.key === "Enter")) return;
+              // ⌘↵ is also the workspace's Apply shortcut; keep it from starting an agent run.
+              e.preventDefault();
+              e.stopPropagation();
+              save();
+            }}
           />
+          <span className="text-xs text-muted-foreground">
+            Several lines run in order, like a shell script. A line that keeps running blocks the next one, so end it with{" "}
+            <code className="font-mono">&amp;</code> to run servers side by side, and keep the last one in the foreground. ⌘↵ to save.
+          </span>
         </label>
 
         <label className="flex flex-col gap-1">
