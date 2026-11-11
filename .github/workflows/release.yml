@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check tag matches app version
+        run: |
+          v="${VERSION#v}"
+          app=$(node -p 'require("./src-tauri/tauri.conf.json").version')
+          [ "$v" = "$app" ] || { echo "Tag $VERSION does not match tauri.conf.json version $app"; exit 1; }
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test && pnpm -C overlay test && cargo test --manifest-path src-tauri/Cargo.toml
+      - run: pnpm tauri build --target universal-apple-darwin --bundles app
+
+      - name: Zip and publish release
+        id: zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${VERSION#v}"
+          zip="Divina-$v-universal.zip"
+          ditto -c -k --keepParent src-tauri/target/universal-apple-darwin/release/bundle/macos/Divina.app "$zip"
+          echo "sha256=$(shasum -a 256 "$zip" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          gh release view "$VERSION" >/dev/null 2>&1 || gh release create "$VERSION" --title "Divina $v" --generate-notes
+          gh release upload "$VERSION" "$zip" --clobber
+
+      - name: Update Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SHA256: ${{ steps.zip.outputs.sha256 }}
+        run: |
+          [ -n "$TAP_TOKEN" ] || { echo "::warning::HOMEBREW_TAP_TOKEN not set; skipping tap update"; exit 0; }
+          git clone "https://x-access-token:$TAP_TOKEN@github.com/shreyas-dhakal/homebrew-tap.git" tap
+          cd tap
+          sed -i '' -E "s/^  version \".*\"/  version \"${VERSION#v}\"/; s/^  sha256 \".*\"/  sha256 \"$SHA256\"/" Casks/divina.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "divina ${VERSION#v}"
+          git push

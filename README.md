@@ -39,6 +39,10 @@ Checks: `pnpm build`, `pnpm --dir overlay build`, `cargo test --manifest-path sr
 | `src/components/ui/` | shadcn components (preset `b0`) |
 | `overlay/` | In-frame overlay script, built to `overlay/dist/divina-overlay.js` (IIFE) |
 
+## Release
+
+Bump `version` in `src-tauri/tauri.conf.json`, commit, then push a tag: `git tag v0.2.0 && git push origin v0.2.0`. The Release workflow builds the universal macOS app, publishes the GitHub release and updates the Homebrew tap (needs the `HOMEBREW_TAP_TOKEN` repo secret).
+
 ## License
 
 Copyright (C) 2026 Shreyas Dhakal
