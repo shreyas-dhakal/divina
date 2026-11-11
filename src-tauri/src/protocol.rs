@@ -276,6 +276,13 @@ pub struct Checkpoint {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CheckpointDiff {
+    pub files: Vec<String>,
+    pub diff: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct McpServerInfo {
     pub url: String,
 }
