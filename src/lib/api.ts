@@ -14,14 +14,16 @@ import type {
   LibraryComponent,
   McpServerInfo,
   ProjectInfo,
+  ProjectTemplate,
   RunConfig,
   Stack,
 } from "@/shared/protocol";
 
 export const api = {
   openProject: (path: string) => invoke<ProjectInfo>("open_project", { path }),
-  createProject: (parent: string, name: string) =>
-    invoke<ProjectInfo>("create_project", { parent, name }),
+  createProject: (parent: string, name: string, template: string) =>
+    invoke<ProjectInfo>("create_project", { parent, name, template }),
+  listTemplates: () => invoke<ProjectTemplate[]>("list_templates"),
   saveRunConfig: (root: string, run: RunConfig) => invoke<ProjectInfo>("save_run_config", { root, run }),
 
   startDevServer: (root: string) => invoke<DevServerStatus>("start_dev_server", { root }),

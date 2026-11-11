@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SettingsFooter } from "@/components/Settings";
 import { api } from "@/lib/api";
-import type { ProjectInfo } from "@/shared/protocol";
+import type { ProjectInfo, ProjectTemplate } from "@/shared/protocol";
 
 const RECENT_KEY = "divina.recent";
 
@@ -40,6 +41,10 @@ export function Welcome({ onOpen }: { onOpen: (p: ProjectInfo) => void }) {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState("react-vite");
+  useEffect(() => { api.listTemplates().then(setTemplates, () => setTemplates([])); }, []);
+  const activeTemplate = templates.find((t) => t.id === selectedTemplate);
   const recent = loadRecent();
 
   async function run(task: () => Promise<ProjectInfo>) {
@@ -80,7 +85,21 @@ export function Welcome({ onOpen }: { onOpen: (p: ProjectInfo) => void }) {
             <Button variant="outline" onClick={async () => setParent(await pickFolder(parent))}>Browse…</Button>
           </div>
           <Input placeholder="Project name" value={name} onChange={(e) => setName(e.target.value)} />
-          <Button disabled={!parent || !name || busy} onClick={() => run(() => api.createProject(parent, name))}>
+          <Select value={selectedTemplate} onValueChange={(v) => v && setSelectedTemplate(v)}>
+            <SelectTrigger className="w-full"><SelectValue placeholder="Choose a template" /></SelectTrigger>
+            <SelectContent>
+              {templates.map((template) => (
+                <SelectItem key={template.id} value={template.id} disabled={!template.available}>
+                  <span className="flex flex-col items-start gap-0.5 whitespace-normal">
+                    <span>{template.name}</span>
+                    <span className="text-xs text-muted-foreground">{template.description}</span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {activeTemplate?.missing && <p className="text-xs text-muted-foreground">{activeTemplate.missing}</p>}
+          <Button disabled={!parent || !name || busy || !activeTemplate?.available} onClick={() => run(() => api.createProject(parent, name, selectedTemplate))}>
             Create
           </Button>
         </section>
