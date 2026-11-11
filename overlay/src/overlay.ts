@@ -78,7 +78,14 @@ export function buildDomAnchor(element: Element): DomAnchor {
 function visibleText(element: Element): string {
   const style = getComputedStyle(element);
   if (style.display === "none" || style.visibility === "hidden") return "";
-  return (element.textContent ?? "").replace(/\s+/g, " ").trim();
+  // First text run, not all of textContent: a container's joined text never appears in the source.
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.parentElement?.closest("script, style")) continue;
+    const text = (node.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (text) return text;
+  }
+  return "";
 }
 
 function nearbyText(element: Element): string {

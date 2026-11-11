@@ -61,6 +61,11 @@ describe("DOM anchors", () => {
     expect(buildDomAnchor(vue!).meta).toBe("/project/src/Card.vue:0:0");
   });
 
+  it("uses a container's first text run, not all its text joined", () => {
+    document.body.innerHTML = `<section><h2>Our Services</h2><p>We build things.</p></section>`;
+    expect(buildDomAnchor(document.querySelector("section")!).text).toBe("Our Services");
+  });
+
   it("keeps empty text when no nearby text exists", () => {
     document.body.innerHTML = "<main><div></div></main>";
     expect(buildDomAnchor(document.querySelector("div")!).text).toBe("");
