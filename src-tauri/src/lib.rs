@@ -8,6 +8,7 @@ mod project;
 pub mod protocol;
 mod proxy;
 mod snapshot;
+mod terminal;
 
 /// A Finder-launched app gets a bare PATH; adopt the login shell's so pnpm/node/agent CLIs resolve
 /// for every child process (dev server, installer, agents, git).
@@ -57,8 +58,7 @@ pub fn run() {
             devserver::dev_server_status,
             proxy::proxy_url,
             agent::detect_agents,
-            agent::run_agent,
-            agent::cancel_agent,
+            agent::agent_prompt,
             mcp::start_mcp_server,
             mcp::mcp_respond,
             mcp::mcp_config_for,
@@ -73,6 +73,11 @@ pub fn run() {
             checkpoint::diff_since_checkpoint,
             checkpoint::init_git,
             snapshot::snapshot_frame,
+            terminal::terminal_open,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_close,
+            terminal::terminal_close_all,
             user_name,
         ])
         .build(tauri::generate_context!())
@@ -80,6 +85,7 @@ pub fn run() {
         .run(|_, event| {
             if let tauri::RunEvent::Exit = event {
                 devserver::stop();
+                terminal::terminal_close_all();
             }
         });
 }
