@@ -132,7 +132,7 @@ try {
       try {
         const kebab = name.replace(/[A-Z]/g, (letter, index) => `${index ? '-' : ''}${letter.toLowerCase()}`);
         await docsPage.goto(`${base}/${kebab}`, { waitUntil: 'networkidle', timeout: 30000 });
-        const preview = docsPage.locator('[data-slot="component-preview"] [data-slot="preview"]').first();
+        const preview = docsPage.locator('[data-slot="component-preview"]').first().locator('[data-slot="preview"]').last();
         await preview.waitFor({ state: 'visible', timeout: 10000 });
         const image = await preview.screenshot({ type: 'png', timeout: 10000 });
         await sharp(image).resize(440, 180, { fit: 'contain', background: '#ffffff' }).extend({ top: 30, bottom: 30, left: 20, right: 20, background: '#ffffff' }).webp({ quality: 85 }).toFile(destination);
