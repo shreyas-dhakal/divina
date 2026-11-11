@@ -11,8 +11,16 @@ use tokio::net::{TcpListener, TcpStream};
 
 pub const OVERLAY_PATH: &str = "/__divina/overlay.js";
 const OVERLAY_TAG: &str = r#"<script src="/__divina/overlay.js"></script>"#;
-// ponytail: read from the source tree at request time; bundle as a Tauri resource for release builds.
 const OVERLAY_FILE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../overlay/dist/divina-overlay.js");
+
+/// Debug builds read the overlay at request time (rebuild it without restarting the app);
+/// release builds embed it, so the app never depends on the source tree.
+fn overlay_js() -> std::io::Result<Vec<u8>> {
+    #[cfg(debug_assertions)]
+    return std::fs::read(OVERLAY_FILE);
+    #[cfg(not(debug_assertions))]
+    return Ok(include_bytes!("../../overlay/dist/divina-overlay.js").to_vec());
+}
 
 type Body = BoxBody<Bytes, hyper::Error>;
 
@@ -68,7 +76,7 @@ async fn serve(listener: TcpListener) {
 
 async fn handle(req: Request<Incoming>) -> Result<Response<Body>, hyper::Error> {
     if req.uri().path() == OVERLAY_PATH {
-        return Ok(match std::fs::read(OVERLAY_FILE) {
+        return Ok(match overlay_js() {
             Ok(js) => Response::builder()
                 .header(CONTENT_TYPE, "text/javascript")
                 .header("cache-control", "no-store")

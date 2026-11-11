@@ -102,8 +102,12 @@ export type HostToOverlay =
   | { type: "set-mode"; mode: OverlayMode }
   /** x/y: drop point in frame (unscaled viewport) coordinates. */
   | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number }
+  /** Host drag in progress over the frame: show the drop indicator at x/y (frame coords). */
+  | { type: "insert-hover"; x: number; y: number }
   | { type: "clear-optimistic" }
-  | { type: "request-snapshot"; requestId: string };
+  | { type: "request-snapshot"; requestId: string }
+  /** In-page fallback capture; answered with OverlayToHost screenshot-response. */
+  | { type: "screenshot-request"; requestId: string };
 
 export type AgentKind = "claude" | "codex" | "opencode";
 

@@ -7,7 +7,6 @@ const hostOrigin = (() => {
 let mode: OverlayMode = "off";
 let selected: Element | null = null;
 let hovered: Element | null = null;
-let preview: { component: string; importFrom: string } | null = null;
 let trustedOrigin = hostOrigin;
 const revert: Array<() => void> = [];
 const id = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -22,7 +21,9 @@ const viewport = (): Viewport => {
 };
 const scope = (): Scope => viewport().preset === "mobile" ? "mobile-down" : viewport().preset === "tablet" ? "tablet-down" : "all";
 function send(message: OverlayToHost) {
-  if (trustedOrigin) window.parent.postMessage(message, trustedOrigin);
+  // Without a referrer (e.g. tauri:// host) the origin is learned from the host's first message; "ready" prompts it.
+  const origin = trustedOrigin || (message.type === "ready" ? "*" : "");
+  if (origin) window.parent.postMessage(message, origin);
 }
 
 const ui = document.createElement("div");
@@ -101,7 +102,7 @@ function onPointerMove(event: PointerEvent) {
     }
     return;
   }
-  if (mode !== "select" || preview) return;
+  if (mode !== "select") return;
   hovered = targetAt(event.clientX, event.clientY);
   updateOutline(selected ?? hovered);
   send({ type: "hover", ref: hovered ? resolveSourceRef(hovered) : null, rect: hovered ? rectOf(hovered) : null });
@@ -114,7 +115,6 @@ function onPointerDown(event: PointerEvent) {
     event.preventDefault();
     return;
   }
-  if (preview) return;
   if (selected && usable(event.target as Element) && (event.target === selected || selected.contains(event.target as Node))) {
     const parent = selected.parentNode;
     if (!parent) return;
@@ -154,29 +154,25 @@ function onPointerUp(event: PointerEvent) {
     updateOutline(selected);
     send({ type: "edit", record: record("move", source, { anchor, position: current.position }) });
   }
-  if (preview) {
-    const target = targetAt(event.clientX, event.clientY);
-    if (target) {
-      const position = calculateDropPosition(target, event.clientX, event.clientY);
-      const anchor = resolveSourceRef(target);
-      if (anchor) {
-        const box = document.createElement("div");
-        box.dataset.divinaPlaceholder = "true";
-        box.textContent = preview.component;
-        box.style.cssText = "border:1px dashed #7c3aed;background:#7c3aed12;color:#6d28d9;padding:16px;text-align:center";
-        if (position.startsWith("inside")) target.insertBefore(box, position === "inside-start" ? target.firstChild : null);
-        else target.parentNode?.insertBefore(box, position === "before" ? target : target.nextSibling);
-        revert.push(() => box.remove());
-        const targetRef = anchor;
-        send({ type: "edit", record: record("insert", targetRef, { component: preview.component, importFrom: preview.importFrom, anchor, position }) });
-      }
-    }
-    preview = null;
-    indicator.style.display = "none";
-  }
+}
+/** Host-driven drop of a library component at frame coords (pointer events never reach the iframe during a host drag). */
+function dropInsert(component: string, importFrom: string, x: number, y: number) {
+  indicator.style.display = "none";
+  const target = targetAt(x, y);
+  const anchor = target && resolveSourceRef(target);
+  if (!target || !anchor) return;
+  const position = calculateDropPosition(target, x, y);
+  const box = document.createElement("div");
+  box.dataset.divinaPlaceholder = "true";
+  box.textContent = component;
+  box.style.cssText = "border:1px dashed #7c3aed;background:#7c3aed12;color:#6d28d9;padding:16px;text-align:center";
+  if (position.startsWith("inside")) target.insertBefore(box, position === "inside-start" ? target.firstChild : null);
+  else target.parentNode?.insertBefore(box, position === "before" ? target : target.nextSibling);
+  revert.push(() => box.remove());
+  send({ type: "edit", record: record("insert", anchor, { component, importFrom, anchor, position }) });
 }
 function onClick(event: MouseEvent) {
-  if (mode !== "select" || preview || !usable(event.target as Element)) return;
+  if (mode !== "select" || !usable(event.target as Element)) return;
   const target = getUserCodeTarget(event.target as Element);
   if (!target) return;
   selected = target;
@@ -206,10 +202,9 @@ function onDoubleClick(event: MouseEvent) {
   };
   target.addEventListener("blur", finish);
 }
-function onInsertMove(event: PointerEvent) {
-  if (!preview) return;
-  const target = targetAt(event.clientX, event.clientY);
-  if (target) showDrop(target, calculateDropPosition(target, event.clientX, event.clientY));
+function showInsertHover(x: number, y: number) {
+  const target = targetAt(x, y);
+  if (target) showDrop(target, calculateDropPosition(target, x, y));
   else indicator.style.display = "none";
 }
 async function renderScreenshot(requestId: string) {
@@ -235,7 +230,7 @@ async function renderScreenshot(requestId: string) {
 function receive(event: MessageEvent<HostToOverlay>) {
   if (event.source !== window.parent || !event.origin || (trustedOrigin && event.origin !== trustedOrigin)) return;
   if (!trustedOrigin) trustedOrigin = event.origin;
-  const message = event.data as unknown as HostToOverlay | { type: "screenshot-request"; requestId: string };
+  const message = event.data;
   if (!message || typeof message !== "object") return;
   switch (message.type) {
     case "set-mode":
@@ -244,9 +239,11 @@ function receive(event: MessageEvent<HostToOverlay>) {
       if (mode !== "select") updateOutline(null);
       else updateOutline(selected);
       break;
+    case "insert-hover":
+      showInsertHover(message.x, message.y);
+      break;
     case "preview-insert":
-      preview = { component: message.component, importFrom: message.importFrom };
-      mode = "insert";
+      dropInsert(message.component, message.importFrom, message.x, message.y);
       break;
     case "clear-optimistic":
       for (const undo of revert.splice(0).reverse()) undo();
@@ -268,7 +265,6 @@ document.addEventListener("pointerdown", onPointerDown);
 document.addEventListener("pointerup", onPointerUp);
 document.addEventListener("click", onClick, true);
 document.addEventListener("dblclick", onDoubleClick);
-document.addEventListener("pointermove", onInsertMove);
 window.addEventListener("resize", () => updateOutline(selected));
 const originalError = console.error.bind(console);
 console.error = (...args: unknown[]) => {

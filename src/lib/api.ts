@@ -6,6 +6,7 @@ import type {
   AgentInfo,
   AgentKind,
   Checkpoint,
+  CheckpointDiff,
   DevServerLog,
   DevServerStatus,
   EditRecord,
@@ -28,8 +29,9 @@ export const api = {
   proxyUrl: () => invoke<string>("proxy_url"),
 
   detectAgents: () => invoke<AgentInfo[]>("detect_agents"),
-  runAgent: (agent: AgentKind, prompt: string, edits: EditRecord[]) =>
-    invoke<void>("run_agent", { agent, prompt, edits }),
+  /** Checkpoints, starts the agent and resolves with the checkpoint; output arrives via onAgentEvent. */
+  runAgent: (agent: AgentKind, projectDir: string, prompt: string, edits: EditRecord[]) =>
+    invoke<Checkpoint>("run_agent", { agent, projectDir, prompt, edits }),
   cancelAgent: () => invoke<void>("cancel_agent"),
   onAgentEvent: (cb: (event: AgentEvent) => void): Promise<UnlistenFn> =>
     listen<AgentEvent>("agent://event", (e) => cb(e.payload)),
@@ -40,9 +42,9 @@ export const api = {
 
   listComponents: (root: string) => invoke<LibraryComponent[]>("list_components", { root }),
   runInstaller: (root: string, command: string) =>
-    invoke<void>("run_installer", { root, command }),
+    invoke<LibraryComponent[]>("run_installer", { root, command }),
   onInstallerLog: (cb: (log: DevServerLog) => void): Promise<UnlistenFn> =>
-    listen<DevServerLog>("installer://log", (e) => cb(e.payload)),
+    listen<DevServerLog>("library://log", (e) => cb(e.payload)),
 
   createCheckpoint: (root: string, label: string) =>
     invoke<Checkpoint>("create_checkpoint", { root, label }),
@@ -50,5 +52,10 @@ export const api = {
   restoreCheckpoint: (root: string, id: string) =>
     invoke<void>("restore_checkpoint", { root, id }),
   diffSinceCheckpoint: (root: string, id: string) =>
-    invoke<string>("diff_since_checkpoint", { root, id }),
+    invoke<CheckpointDiff>("diff_since_checkpoint", { root, id }),
+  initGit: (root: string) => invoke<void>("init_git", { root }),
+
+  /** Native PNG data URL of a host-window region (CSS px), resampled to outWidth. */
+  snapshotFrame: (rect: { x: number; y: number; width: number; height: number }, outWidth: number) =>
+    invoke<string>("snapshot_frame", { ...rect, outWidth }),
 };

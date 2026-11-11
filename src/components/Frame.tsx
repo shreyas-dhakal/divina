@@ -15,9 +15,11 @@ interface Props {
   iframeRef: RefObject<HTMLIFrameElement | null>;
   dragging: boolean;
   onDrop: (c: LibraryComponent, x: number, y: number) => void;
+  /** Drag position in frame coords; off-frame (-1,-1) when the drag leaves. */
+  onHover: (p: { x: number; y: number }) => void;
 }
 
-export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, dragging, onDrop }: Props) {
+export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, dragging, onDrop, onHover }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [avail, setAvail] = useState({ w: 1, h: 1 });
@@ -81,7 +83,11 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
             {dragging && (
               <div
                 className="absolute inset-0 outline-2 outline-dashed outline-primary"
-                onDragOver={(e) => e.preventDefault()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  onHover(toFrameCoords(e.clientX, e.clientY, frameRef.current!.getBoundingClientRect(), scale));
+                }}
+                onDragLeave={() => onHover({ x: -1, y: -1 })}
                 onDrop={(e) => {
                   e.preventDefault();
                   const data = e.dataTransfer.getData(DRAG_MIME);

@@ -170,8 +170,10 @@ pub enum OverlayToHost {
 pub enum HostToOverlay {
     SetMode { mode: OverlayMode },
     PreviewInsert { component: String, import_from: String, x: f64, y: f64 },
+    InsertHover { x: f64, y: f64 },
     ClearOptimistic,
     RequestSnapshot { request_id: String },
+    ScreenshotRequest { request_id: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -321,6 +323,7 @@ mod tests {
         roundtrip::<OverlayToHost>(json!({"type": "hover", "ref": null, "rect": null}));
         roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Card", "importFrom": "x", "x": 10.5, "y": 20.0}));
         roundtrip::<HostToOverlay>(json!({"type": "clear-optimistic"}));
+        roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0}));
         roundtrip::<AgentEvent>(json!({"type": "done", "ok": true}));
         roundtrip::<DevServerStatus>(json!({"state": "running", "url": "http://localhost:5173"}));
     }

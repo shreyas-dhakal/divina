@@ -2,7 +2,7 @@ mod streams;
 
 use crate::{
     mcp,
-    protocol::{AgentEvent, AgentInfo, AgentKind, EditRecord},
+    protocol::{AgentEvent, AgentInfo, AgentKind, Checkpoint, EditRecord},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -45,7 +45,11 @@ impl Session {
 }
 
 #[tauri::command]
-pub fn detect_agents() -> Vec<AgentInfo> {
+pub async fn detect_agents() -> Vec<AgentInfo> {
+    tauri::async_runtime::spawn_blocking(detect).await.unwrap_or_default()
+}
+
+fn detect() -> Vec<AgentInfo> {
     [AgentKind::Claude, AgentKind::Codex, AgentKind::Opencode]
         .into_iter()
         .filter_map(|kind| {
@@ -61,11 +65,11 @@ pub fn detect_agents() -> Vec<AgentInfo> {
                 AgentKind::Codex => output(&path, &["login", "status"])
                     .map(|s| s.contains("Logged in"))
                     .unwrap_or(false),
-                AgentKind::Opencode => output(&path, &["auth", "list"])
-                    .map(|s| {
-                        s.lines()
-                            .any(|l| l.contains("credentials") && !l.contains("0 credentials"))
-                    })
+                // Stored credentials don't prove the default model works (e.g. an expired key
+                // answers 401), so probe with one tiny run.
+                // ponytail: costs one short model call per detection; cache per launch if it gets slow.
+                AgentKind::Opencode => output(&path, &["run", "--format", "json", "Reply with: ok"])
+                    .map(|s| !s.lines().any(|l| l.contains(r#""type":"error""#)))
                     .unwrap_or(false),
             };
             Some(AgentInfo {
@@ -78,27 +82,39 @@ pub fn detect_agents() -> Vec<AgentInfo> {
         .collect()
 }
 
+/// Checkpoints the project, starts the agent and returns the checkpoint at once; output streams
+/// on EVENT and ends with exactly one `done`. Errors with NO_GIT_REPO when the project has no repo.
 #[tauri::command]
-pub fn run_agent(
+pub async fn run_agent(
     app: tauri::AppHandle,
     agent: AgentKind,
     project_dir: String,
     prompt: String,
     edits: Vec<EditRecord>,
-) -> Result<(), String> {
+) -> Result<Checkpoint, String> {
     let root = PathBuf::from(&project_dir)
         .canonicalize()
         .map_err(|e| format!("Invalid project directory: {e}"))?;
     if !root.is_dir() {
         return Err("Project path is not a directory".into());
     }
+    if ACTIVE_PID.lock().map_err(|e| e.to_string())?.is_some() {
+        return Err("An agent run is already in progress".into());
+    }
     let path = find_binary(binary_name(agent))
         .ok_or_else(|| format!("{} was not found on PATH", binary_name(agent)))?;
+    let label = match prompt.trim() {
+        "" => format!("Apply {} edit(s)", edits.len()),
+        p => p.chars().take(80).collect(),
+    };
+    let checkpoint = crate::checkpoint::create_checkpoint(root.to_string_lossy().into(), label)?;
+    mcp::start_mcp_server(app.clone())?;
     let config = mcp::mcp_config_for(agent)?;
-    let mut session = read_session(&root);
+    let session = read_session(&root);
     let full_prompt = build_prompt(&prompt, &edits);
     let mut cmd = Command::new(path);
     cmd.current_dir(&root)
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     configure(
@@ -114,48 +130,64 @@ pub fn run_agent(
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
-    let mut child = cmd
+    let child = cmd
         .spawn()
         .map_err(|e| format!("Failed to start agent: {e}"))?;
     *ACTIVE_PID.lock().map_err(|e| e.to_string())? = Some(child.id());
+    std::thread::spawn(move || {
+        let ok = pump(&app, agent, child, &root, session).unwrap_or_else(|e| {
+            let _ = app.emit(EVENT, AgentEvent::Error { message: e });
+            false
+        });
+        *ACTIVE_PID.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let _ = app.emit(EVENT, AgentEvent::Done { ok });
+    });
+    Ok(checkpoint)
+}
+
+fn pump(
+    app: &tauri::AppHandle,
+    agent: AgentKind,
+    mut child: std::process::Child,
+    root: &Path,
+    mut session: Session,
+) -> Result<bool, String> {
     let output = child.stdout.take().ok_or("Agent stdout unavailable")?;
     let mut stderr = child.stderr.take().ok_or("Agent stderr unavailable")?;
-    let _ = std::thread::Builder::new()
-        .name("agent-stderr".into())
-        .spawn(move || {
-            use std::io::Read;
-            let mut sink = String::new();
-            let _ = stderr.read_to_string(&mut sink);
-        });
+    let stderr = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut sink = String::new();
+        let _ = stderr.read_to_string(&mut sink);
+        sink
+    });
     let mut session_id = None;
     for line in BufReader::new(output).lines() {
         let line = line.map_err(|e| format!("Failed reading agent output: {e}"))?;
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
             session_id = session_id.or_else(|| extract_session_id(agent, &v));
         }
-        if let Some(event) = streams::parse_event(agent, &line) {
-            let _ = app.emit(EVENT, event);
+        match streams::parse_event(agent, &line) {
+            // run_agent emits the single authoritative `done` once the process exits.
+            Some(AgentEvent::Done { .. }) | None => {}
+            Some(event) => {
+                let _ = app.emit(EVENT, event);
+            }
         }
     }
     let status = child
         .wait()
         .map_err(|e| format!("Failed waiting for agent: {e}"))?;
-    *ACTIVE_PID.lock().unwrap_or_else(|e| e.into_inner()) = None;
     if let Some(id) = session_id {
         session.set(agent, id);
-        write_session(&root, &session)?;
+        write_session(root, &session)?;
     }
-    let _ = app.emit(
-        EVENT,
-        AgentEvent::Done {
-            ok: status.success(),
-        },
-    );
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("Agent exited with status {status}"))
+    if !status.success() {
+        let err = stderr.join().unwrap_or_default();
+        let tail: Vec<&str> = err.lines().rev().take(20).collect();
+        let tail: Vec<&str> = tail.into_iter().rev().collect();
+        return Err(format!("Agent exited with {status}\n{}", tail.join("\n")));
     }
+    Ok(true)
 }
 
 #[tauri::command]
@@ -201,6 +233,8 @@ fn configure(
                     "--restricted",
                     "--permission-mode",
                     "acceptEdits",
+                    "--allowedTools",
+                    "mcp__divina",
                     "--strict-mcp-config",
                     "--mcp-config",
                 ])
@@ -212,8 +246,7 @@ fn configure(
         AgentKind::Codex => {
             cmd.arg("exec");
             if let Some(id) = session {
-                cmd.args(["resume", id, prompt]);
-                cmd.args(["-c", "sandbox_mode=\"workspace-write\""]);
+                cmd.args(["resume", "--json", "-c", "sandbox_mode=\"workspace-write\"", id, prompt]);
             } else {
                 cmd.args(["--json", "--sandbox", "workspace-write", "--cd"])
                     .arg(root)
@@ -298,18 +331,6 @@ fn find_binary(name: &str) -> Option<PathBuf> {
     let mut paths: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
-    if let Ok(shell_path) =
-        Command::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()))
-            .args(["-lc", "printf %s \"$PATH\""])
-            .output()
-    {
-        if shell_path.status.success() {
-            let login_path = String::from_utf8_lossy(&shell_path.stdout);
-            paths.extend(std::env::split_paths(std::ffi::OsStr::new(
-                login_path.as_ref(),
-            )));
-        }
-    }
     if let Some(home) = std::env::var_os("HOME") {
         let home = PathBuf::from(home);
         paths.extend([

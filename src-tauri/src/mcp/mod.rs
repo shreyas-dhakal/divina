@@ -144,9 +144,16 @@ fn serve(
             {
                 return respond(&mut stream, 401, json!({"error":"unauthorized"}));
             }
+            if !headers.starts_with("POST ") {
+                // No server-initiated SSE stream; streamable-HTTP clients accept 405 here.
+                return respond(&mut stream, 405, json!({"error":"method not allowed"}));
+            }
             let body: Value =
                 serde_json::from_slice(&bytes[header_end..(header_end + len).min(bytes.len())])
                     .map_err(|e| e.to_string())?;
+            if body.get("id").is_none() {
+                return respond(&mut stream, 202, json!({})); // notification: accepted, no reply
+            }
             let result = rpc(body, shared, request);
             return respond(&mut stream, 200, result);
         }
@@ -155,7 +162,12 @@ fn serve(
 
 fn respond(stream: &mut TcpStream, status: u16, body: Value) -> Result<(), String> {
     let body = serde_json::to_vec(&body).map_err(|e| e.to_string())?;
-    let label = if status == 200 { "OK" } else { "Unauthorized" };
+    let label = match status {
+        200 => "OK",
+        202 => "Accepted",
+        401 => "Unauthorized",
+        _ => "Method Not Allowed",
+    };
     write!(stream, "HTTP/1.1 {status} {label}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).and_then(|_| stream.write_all(&body)).map_err(|e| e.to_string())
 }
 

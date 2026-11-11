@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { AgentChat, type ChatEntry } from "@/components/AgentChat";
 import { Frame } from "@/components/Frame";
 import { Library } from "@/components/Library";
@@ -9,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
+import { installMcpBridge, type McpRequest } from "@/lib/mcpBridge";
 import { PRESETS, scopeFor } from "@/lib/viewport";
 import type {
   AgentInfo,
@@ -65,6 +67,13 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   const [diff, setDiff] = useState<DiffResult | null>(null);
   const [notice, setNotice] = useState("");
   const appliedRef = useRef<EditRecord[]>([]);
+  /** Checkpoints taken before each run, newest last; Undo walks back through them. */
+  const runCheckpoints = useRef<string[]>([]);
+  const editsRef = useRef(edits);
+  editsRef.current = edits;
+  const consoleErrors = useRef<string[]>([]);
+  /** Overlay replies (dom-snapshot, screenshot-response) awaited by requestId. */
+  const pending = useRef(new Map<string, (value: unknown) => void>());
 
   const say = (role: ChatEntry["role"], text: string) => setTranscript((t) => [...t, { role, text }]);
   const post = (msg: HostToOverlay) => iframeRef.current?.contentWindow?.postMessage(msg, "*");
@@ -107,10 +116,48 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       else if (msg.type === "edit") {
         const vp = viewportRef.current;
         setEdits((q) => [...q, { ...msg.record, viewport: vp, scope: scopeFor(vp) }]);
-      } else if (msg.type === "console-error") setLogs((l) => [...l, `[frame] ${msg.message}`]);
+      } else if (msg.type === "dom-snapshot") pending.current.get(msg.requestId)?.(msg.root);
+      else if (msg.type === "screenshot-response") pending.current.get(msg.requestId)?.({ dataUrl: msg.dataUrl });
+      else if (msg.type === "console-error") {
+        consoleErrors.current = [...consoleErrors.current.slice(-99), msg.message];
+        setLogs((l) => [...l, `[frame] ${msg.message}`]);
+      }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  function askOverlay(msg: HostToOverlay & { requestId: string }) {
+    return new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("preview did not answer")), 8000);
+      pending.current.set(msg.requestId, (v) => {
+        clearTimeout(timer);
+        pending.current.delete(msg.requestId);
+        resolve(v);
+      });
+      post(msg);
+    });
+  }
+
+  // MCP bridge: the agent's tool calls are answered from host state or the preview iframe.
+  useEffect(() => {
+    const relay = async (req: McpRequest): Promise<unknown> => {
+      const requestId = req.id;
+      if (req.tool === "get_pending_edits") return editsRef.current;
+      if (req.tool === "get_console_errors") return consoleErrors.current;
+      if (req.tool === "get_dom_snapshot") return askOverlay({ type: "request-snapshot", requestId });
+      const frame = iframeRef.current?.getBoundingClientRect();
+      if (frame) {
+        try {
+          return { dataUrl: await api.snapshotFrame(frame, viewportRef.current.width) };
+        } catch (e) {
+          setLogs((l) => [...l, `native snapshot failed, using in-page capture: ${e}`]);
+        }
+      }
+      return askOverlay({ type: "screenshot-request", requestId });
+    };
+    const un = installMcpBridge(relay);
+    return () => void un.then((f) => f());
   }, []);
 
   function addEdit(partial: Pick<EditRecord, "kind" | "payload">) {
@@ -123,17 +170,12 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
     ]);
   }
 
-  async function latestCheckpoint() {
-    const list = await api.listCheckpoints(root);
-    return list.reduce<(typeof list)[number] | undefined>((a, c) => (!a || c.createdAt > a.createdAt ? c : a), undefined);
-  }
-
   async function showDiff() {
+    const cp = runCheckpoints.current[runCheckpoints.current.length - 1];
+    if (!cp) return;
     try {
-      const cp = await latestCheckpoint();
-      if (!cp) return;
-      const text = await api.diffSinceCheckpoint(root, cp.id);
-      setDiff({ diff: text, ...changedFiles(text, appliedRef.current.map((e) => e.target.file)) });
+      const d = await api.diffSinceCheckpoint(root, cp);
+      setDiff({ diff: d.diff, ...changedFiles(d.diff, appliedRef.current.map((e) => e.target.file)) });
     } catch (e) {
       setNotice(`Diff unavailable: ${e}`);
     }
@@ -168,13 +210,24 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
     setNotice("");
     if (prompt) say("user", prompt);
     if (edits.length) say("user", `Apply ${edits.length} edit(s)`);
-    // ponytail: UI checkpoints before every run; drop if run_agent starts checkpointing itself.
-    await api.createCheckpoint(root, prompt || `Apply ${edits.length} edit(s)`).catch((e) => setNotice(`No checkpoint: ${e}`));
     try {
-      await api.runAgent(agent, prompt, edits);
+      let cp;
+      try {
+        cp = await api.runAgent(agent, root, prompt, edits);
+      } catch (e) {
+        // Checkpoints need git; ask once, then retry.
+        if (String(e) !== "NO_GIT_REPO") throw e;
+        const ok = await ask("This project isn't a git repository. Divina keeps undo checkpoints in git. Initialise one here?", {
+          title: "Enable checkpoints",
+        });
+        if (!ok) throw new Error("Cancelled: checkpoints need a git repository.");
+        await api.initGit(root);
+        cp = await api.runAgent(agent, root, prompt, edits);
+      }
+      runCheckpoints.current.push(cp.id);
     } catch (e) {
       say("error", String(e));
-      finishRef.current(false);
+      setRunning(false);
     }
   }
   const runRef = useRef(run);
@@ -192,13 +245,14 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   }, []);
 
   async function undo() {
+    const cp = runCheckpoints.current[runCheckpoints.current.length - 1];
+    if (!cp) return setNotice("Nothing to undo.");
     try {
-      const cp = await latestCheckpoint();
-      if (!cp) return setNotice("No checkpoint to restore.");
-      await api.restoreCheckpoint(root, cp.id);
+      await api.restoreCheckpoint(root, cp);
+      runCheckpoints.current.pop();
       post({ type: "clear-optimistic" });
       setDiff(null);
-      setNotice(`Restored "${cp.label}".`);
+      setNotice(`Restored checkpoint ${cp}.`);
     } catch (e) {
       setNotice(`Undo failed: ${e}`);
     }
@@ -229,6 +283,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
               setViewport={setViewport}
               iframeRef={iframeRef}
               dragging={dragging}
+              onHover={({ x, y }) => post({ type: "insert-hover", x, y })}
               onDrop={(c, x, y) => {
                 setDragging(false);
                 post({ type: "preview-insert", component: c.name, importFrom: c.importFrom, x, y });

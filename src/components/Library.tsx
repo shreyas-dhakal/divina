@@ -25,9 +25,8 @@ export function Library({ root, onDragging }: { root: string; onDragging: (d: bo
     setInstalling(true);
     setOutput([`$ ${command}`]);
     try {
-      await api.runInstaller(root, command);
+      setComponents(await api.runInstaller(root, command));
       setCommand("");
-      refresh();
     } catch (e) {
       setOutput((o) => [...o, `error: ${e}`]);
     } finally {

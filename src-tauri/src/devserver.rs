@@ -71,12 +71,20 @@ pub async fn start_dev_server(app: AppHandle, root: String) -> Result<DevServerS
     if info.package_manager == PackageManager::Npm {
         args.push("--");
     }
-    // ponytail: tagging only when `dev` is plain `vite ...`; Next.js and custom scripts run untagged.
-    if info.framework == Framework::Vite && (dev == "vite" || dev.starts_with("vite ")) {
+    if info.framework == Framework::Vite {
         let dir = Path::new(&info.root).join(".divina");
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         std::fs::write(dir.join(".gitignore"), "*\n").map_err(|e| e.to_string())?;
         std::fs::write(dir.join("vite.config.mjs"), VITE_WRAPPER).map_err(|e| e.to_string())?;
+        // A custom `dev` script can't take --config, so run Vite itself; the wrapper still loads the user's config.
+        // ponytail: drops whatever else that script did (env setup, parallel tasks).
+        if !(dev == "vite" || dev.starts_with("vite ")) {
+            args = match info.package_manager {
+                PackageManager::Npm => vec!["exec", "--", "vite"],
+                PackageManager::Bun => vec!["x", "vite"],
+                _ => vec!["exec", "vite"],
+            };
+        }
         args.extend(["--config", ".divina/vite.config.mjs"]);
     }
     let pm = match info.package_manager {
