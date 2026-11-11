@@ -169,7 +169,7 @@ pub enum OverlayToHost {
 #[serde(tag = "type", rename_all = "kebab-case", rename_all_fields = "camelCase")]
 pub enum HostToOverlay {
     SetMode { mode: OverlayMode },
-    PreviewInsert { component: String, import_from: String },
+    PreviewInsert { component: String, import_from: String, x: f64, y: f64 },
     ClearOptimistic,
     RequestSnapshot { request_id: String },
 }
@@ -310,7 +310,7 @@ mod tests {
         assert_eq!(del.edit, EditKind::Delete);
         roundtrip::<OverlayToHost>(json!({"type": "screenshot-response", "requestId": "r1", "dataUrl": "data:"}));
         roundtrip::<OverlayToHost>(json!({"type": "hover", "ref": null, "rect": null}));
-        roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Card", "importFrom": "x"}));
+        roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Card", "importFrom": "x", "x": 10.5, "y": 20.0}));
         roundtrip::<HostToOverlay>(json!({"type": "clear-optimistic"}));
         roundtrip::<AgentEvent>(json!({"type": "done", "ok": true}));
         roundtrip::<DevServerStatus>(json!({"state": "running", "url": "http://localhost:5173"}));

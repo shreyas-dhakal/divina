@@ -100,7 +100,8 @@ export type OverlayToHost =
 
 export type HostToOverlay =
   | { type: "set-mode"; mode: OverlayMode }
-  | { type: "preview-insert"; component: string; importFrom: string }
+  /** x/y: drop point in frame (unscaled viewport) coordinates. */
+  | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number }
   | { type: "clear-optimistic" }
   | { type: "request-snapshot"; requestId: string };
 
