@@ -1,8 +1,9 @@
+mod locate;
 mod streams;
 
 use crate::{
     mcp,
-    protocol::{AgentEvent, AgentInfo, AgentKind, Checkpoint, EditRecord},
+    protocol::{AgentEvent, AgentInfo, AgentKind, Checkpoint, EditKind, EditRecord},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -113,7 +114,7 @@ pub async fn run_agent(
     mcp::start_mcp_server(app.clone())?;
     let config = mcp::mcp_config_for(agent)?;
     let session = read_session(&root);
-    let full_prompt = build_prompt(&prompt, &edits);
+    let full_prompt = build_prompt(&root, &prompt, &edits);
     let mut cmd = Command::new(path);
     cmd.current_dir(&root)
         .stdin(Stdio::null())
@@ -272,10 +273,53 @@ fn configure(
     Ok(())
 }
 
-fn build_prompt(prompt: &str, edits: &[EditRecord]) -> String {
-    let edits = serde_json::to_string_pretty(edits).unwrap_or_else(|_| "[]".into());
+fn build_prompt(root: &Path, prompt: &str, edits: &[EditRecord]) -> String {
+    let json = serde_json::to_string_pretty(edits).unwrap_or_else(|_| "[]".into());
+    let mut out = format!(
+        "{prompt}\n\nDivina pending edits (JSON, with source locations, owner chains, viewport size, and scope):\n{json}\n\nImplement only the requested changes. Use the source usage sites and owner-component chain to locate the right code; preserve the existing project patterns and change only what is needed. Scope \"all\" applies at every size; \"tablet-down\" means below 1024px (Tailwind `max-lg:`) and \"mobile-down\" below 768px (`max-md:`), so use those max-width variants for scoped changes. Do not use absolute positioning or rewrite unrelated code. After editing, verify the result using the divina MCP screenshot_frame tool at the requested viewport before finishing, and correct any visual mismatch."
+    );
+    for edit in edits {
+        if edit.target.file.is_empty() {
+            if let Some(dom) = &edit.dom {
+                out.push_str(&untagged_section(root, edit, dom));
+            }
+        }
+        if let EditKind::Insert(p) = &edit.edit {
+            if let Some(lib) = &p.library {
+                out.push_str(&format!(
+                    "\n\nEdit {id}: <{c}> comes from the component library \"{name}\". If it is not already a dependency of this project, add it with: `{install}`. Usage: {usage}",
+                    id = edit.id,
+                    c = p.component,
+                    name = lib.name,
+                    install = lib.install,
+                    usage = lib.usage,
+                ));
+            }
+        }
+    }
+    out
+}
+
+fn untagged_section(root: &Path, edit: &EditRecord, dom: &crate::protocol::DomAnchor) -> String {
+    let found = locate::candidates(root, dom);
+    let found = if found.is_empty() {
+        "  (no text match)".to_owned()
+    } else {
+        found.iter().map(|c| format!("  - {c}")).collect::<Vec<_>>().join("\n")
+    };
+    let marker = match &edit.edit {
+        EditKind::Insert(p) => format!(
+            "The dashed purple placeholder box labelled \"{}\" in the preview marks the exact drop position.",
+            p.component
+        ),
+        _ => "The element is the one matching the selector in the preview.".to_owned(),
+    };
     format!(
-        "{prompt}\n\nDivina pending edits (JSON, with source locations, owner chains, viewport size, and scope):\n{edits}\n\nImplement only the requested changes. Use the source usage sites and owner-component chain to locate the right code; preserve the existing project patterns and change only what is needed. Scope \"all\" applies at every size; \"tablet-down\" means below 1024px (Tailwind `max-lg:`) and \"mobile-down\" below 768px (`max-md:`), so use those max-width variants for scoped changes. Do not use absolute positioning or rewrite unrelated code. After editing, verify the result using the divina MCP screenshot_frame tool at the requested viewport before finishing, and correct any visual mismatch."
+        "\n\nEdit {id} targets an element with no source location. Find it in the source yourself.\nDOM selector: {sel}\nTag: {tag}\nText: {text:?}\nCandidate locations from a text search:\n{found}\n{marker} Call the divina MCP screenshot_frame tool first to see it, decide the right file and spot, implement, then screenshot again and confirm the result appears where expected; fix it if not.",
+        id = edit.id,
+        sel = dom.selector,
+        tag = dom.tag,
+        text = dom.text,
     )
 }
 
@@ -351,4 +395,47 @@ fn find_binary(name: &str) -> Option<PathBuf> {
         .into_iter()
         .map(|p| p.join(name))
         .find(|p| p.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn records(v: serde_json::Value) -> Vec<EditRecord> {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn tagged_edits_get_no_untagged_section() {
+        let src = json!({"file": "src/Hero.tsx", "line": 4, "col": 1, "owners": []});
+        let edits = records(json!([{"id": "e1", "kind": "style", "target": src,
+            "viewport": {"preset": "desktop", "width": 1280, "height": 800}, "scope": "all",
+            "payload": {"classes": "p-4", "props": {}}}]));
+        let p = build_prompt(Path::new("/nonexistent"), "go", &edits);
+        assert!(p.starts_with("go\n\nDivina pending edits"));
+        assert!(!p.contains("no source location"));
+    }
+
+    #[test]
+    fn untagged_drop_gets_locations_and_library_instructions() {
+        let dir = std::env::temp_dir().join(format!("divina-prompt-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("Home.svelte"), "<h2>Our Services</h2>\n").unwrap();
+        let none = json!({"file": "", "line": 0, "col": 0, "owners": []});
+        let edits = records(json!([{"id": "e4", "kind": "insert", "target": none,
+            "dom": {"selector": "main > h2", "tag": "h2", "text": "Our Services"},
+            "viewport": {"preset": "desktop", "width": 1280, "height": 800}, "scope": "all",
+            "payload": {"component": "Button", "importFrom": "thaw", "anchor": none, "position": "after",
+                "library": {"id": "thaw", "name": "Thaw", "install": "cargo add thaw", "usage": "<Button/>"}}}]));
+        let p = build_prompt(&dir, "", &edits);
+        assert!(p.contains("DOM selector: main > h2"));
+        assert!(p.contains("- Home.svelte:1: <h2>Our Services</h2>"));
+        assert!(p.contains("dashed purple placeholder box labelled \"Button\""));
+        assert!(p.contains("screenshot_frame tool first"));
+        assert!(p.contains("library \"Thaw\""));
+        assert!(p.contains("add it with: `cargo add thaw`"));
+        fs::remove_dir_all(dir).unwrap();
+    }
 }
