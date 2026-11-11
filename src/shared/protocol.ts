@@ -141,6 +141,38 @@ export type HostToOverlay =
 
 export type AgentKind = "claude" | "codex" | "opencode";
 
+/** A terminal tab: a login shell, or an agent CLI started with Divina's MCP server attached. */
+export type TerminalKind = "shell" | AgentKind;
+
+export interface TerminalInfo {
+  id: string;
+  kind: TerminalKind;
+  title: string;
+}
+
+/** `terminal://data`: raw PTY output, base64-encoded bytes. */
+export interface TerminalData {
+  id: string;
+  data: string;
+}
+
+/** `terminal://exit`. */
+export interface TerminalExit {
+  id: string;
+  code: number | null;
+}
+
+/** A "Create new project" template. */
+export interface ProjectTemplate {
+  id: string;
+  name: string;
+  framework: string;
+  description: string;
+  /** False when a tool it needs isn't installed; `missing` says which and how to get it. */
+  available: boolean;
+  missing?: string;
+}
+
 export interface AgentInfo {
   kind: AgentKind;
   path: string;

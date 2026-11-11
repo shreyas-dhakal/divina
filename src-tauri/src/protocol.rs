@@ -216,6 +216,49 @@ pub enum AgentKind {
     Opencode,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TerminalKind {
+    Shell,
+    Claude,
+    Codex,
+    Opencode,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalInfo {
+    pub id: String,
+    pub kind: TerminalKind,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalData {
+    pub id: String,
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalExit {
+    pub id: String,
+    pub code: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTemplate {
+    pub id: String,
+    pub name: String,
+    pub framework: String,
+    pub description: String,
+    pub available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentInfo {
@@ -433,6 +476,10 @@ mod tests {
         roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Button", "importFrom": "thaw", "x": 1.0, "y": 2.0,
             "library": {"id": "thaw", "name": "Thaw", "install": "cargo add thaw", "usage": "<Button/>"}}));
         roundtrip::<HostToOverlay>(json!({"type": "clear-optimistic"}));
+        roundtrip::<TerminalInfo>(json!({"id": "t1", "kind": "claude", "title": "Claude Code"}));
+        roundtrip::<TerminalExit>(json!({"id": "t1", "code": null}));
+        roundtrip::<ProjectTemplate>(json!({"id": "leptos", "name": "Leptos", "framework": "leptos",
+            "description": "Rust CSR with Thaw", "available": false, "missing": "trunk: cargo install trunk"}));
         roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0}));
         roundtrip::<HostToOverlay>(json!({"type": "preview-edit", "record": {"id": "e4", "kind": "text", "target": src,
             "viewport": vp, "scope": "all", "payload": {"text": "Hi"}}}));
