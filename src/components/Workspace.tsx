@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { AgentChat, type ChatEntry } from "@/components/AgentChat";
 import { Frame } from "@/components/Frame";
 import { Library } from "@/components/Library";
 import { RunSetup } from "@/components/RunSetup";
 import { SettingsFooter } from "@/components/Settings";
+import { TerminalPanel, type TerminalTab } from "@/components/TerminalPanel";
 import { editKey, Properties, sameRef, type Selection } from "@/components/Properties";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,6 @@ import { installMcpBridge, type McpRequest } from "@/lib/mcpBridge";
 import { PRESETS, scopeFor } from "@/lib/viewport";
 import type {
   AgentInfo,
-  AgentKind,
   DevServerStatus,
   EditRecord,
   HostToOverlay,
@@ -68,22 +67,21 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   const [selection, setSelection] = useState<Selection | null>(null);
   const [edits, setEdits] = useState<EditRecord[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [agent, setAgent] = useState<AgentKind | null>(null);
-  const [transcript, setTranscript] = useState<ChatEntry[]>([]);
-  const [draft, setDraft] = useState("");
-  const [running, setRunning] = useState(false);
+  const [panel, setPanel] = useState("properties");
+  const [activeTab, setActiveTab] = useState<TerminalTab | null>(null);
+  const [sending, setSending] = useState(false);
   const [diff, setDiff] = useState<DiffResult | null>(null);
   const [notice, setNotice] = useState("");
   const appliedRef = useRef<EditRecord[]>([]);
-  /** Checkpoints taken before each run, newest last; Undo walks back through them. */
+  /** Checkpoints taken before each send, newest last; Undo walks back through them. */
   const runCheckpoints = useRef<string[]>([]);
+  const [hasCheckpoint, setHasCheckpoint] = useState(false);
   const editsRef = useRef(edits);
   editsRef.current = edits;
   const consoleErrors = useRef<string[]>([]);
   /** Overlay replies (dom-snapshot, screenshot-response) awaited by requestId. */
   const pending = useRef(new Map<string, (value: unknown) => void>());
 
-  const say = (role: ChatEntry["role"], text: string) => setTranscript((t) => [...t, { role, text }]);
   const post = (msg: HostToOverlay) => iframeRef.current?.contentWindow?.postMessage(msg, "*");
 
   const connect = () => {
@@ -104,10 +102,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
     }
     const un = api.onDevServerLog((l) => setLogs((prev) => [...prev.slice(-500), l.line]));
     const poll = setInterval(() => api.devServerStatus().then(setStatus, () => {}), 2000);
-    api.detectAgents().then((list) => {
-      setAgents(list);
-      setAgent(list.find((a) => a.loggedIn)?.kind ?? null);
-    }, () => {});
+    api.detectAgents().then(setAgents, () => {});
     return () => {
       clearInterval(poll);
       api.stopDevServer().catch(() => {});
@@ -158,7 +153,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   useEffect(() => {
     const relay = async (req: McpRequest): Promise<unknown> => {
       const requestId = req.id;
-      if (req.tool === "get_pending_edits") return editsRef.current;
+      if (req.tool === "get_pending_edits") return { root, edits: editsRef.current };
       if (req.tool === "get_console_errors") return consoleErrors.current;
       if (req.tool === "get_dom_snapshot") return askOverlay({ type: "request-snapshot", requestId });
       const frame = iframeRef.current?.getBoundingClientRect();
@@ -197,70 +192,48 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
     }
   }
 
-  function finish(ok: boolean) {
-    setRunning(false);
-    post({ type: "clear-optimistic" });
-    if (ok) setEdits((q) => q.filter((e) => !appliedRef.current.includes(e)));
-    showDiff();
-  }
-  const finishRef = useRef(finish);
-  finishRef.current = finish;
-
-  useEffect(() => {
-    const un = api.onAgentEvent((ev) => {
-      if (ev.type === "text") say("agent", ev.text);
-      else if (ev.type === "tool") say("tool", `${ev.name} ${JSON.stringify(ev.input)}`.slice(0, 300));
-      else if (ev.type === "error") say("error", ev.message);
-      else finishRef.current(ev.ok);
-    });
-    return () => void un.then((f) => f());
-  }, []);
-
-  async function run() {
-    const prompt = draft.trim();
-    if (running || !agent || (!prompt && !edits.length)) return;
-    appliedRef.current = edits;
-    setRunning(true);
-    setDraft("");
-    setDiff(null);
-    setNotice("");
-    if (prompt) say("user", prompt);
-    if (edits.length) say("user", `Apply ${edits.length} edit(s)`);
-    // The agent works from the edit list; previews left in the DOM would mix with its HMR'd result.
-    post({ type: "clear-optimistic" });
+  async function checkpoint() {
+    const label = `Before sending ${edits.length} edit(s)`;
     try {
-      let cp;
-      try {
-        cp = await api.runAgent(agent, root, prompt, edits);
-      } catch (e) {
-        // Checkpoints need git; ask once, then retry.
-        if (String(e) !== "NO_GIT_REPO") throw e;
-        const ok = await ask("This project isn't a git repository. Divina keeps undo checkpoints in git. Initialise one here?", {
-          title: "Enable checkpoints",
-        });
-        if (!ok) throw new Error("Cancelled: checkpoints need a git repository.");
-        await api.initGit(root);
-        cp = await api.runAgent(agent, root, prompt, edits);
-      }
-      runCheckpoints.current.push(cp.id);
+      return await api.createCheckpoint(root, label);
     } catch (e) {
-      say("error", String(e));
-      setRunning(false);
+      // Checkpoints need git; ask once, then retry.
+      if (String(e) !== "NO_GIT_REPO") throw e;
+      const ok = await ask("This project isn't a git repository. Divina keeps undo checkpoints in git. Initialise one here?", {
+        title: "Enable checkpoints",
+      });
+      if (!ok) throw new Error("Cancelled: checkpoints need a git repository.");
+      await api.initGit(root);
+      return api.createCheckpoint(root, label);
     }
   }
-  const runRef = useRef(run);
-  runRef.current = run;
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        e.preventDefault();
-        runRef.current();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  /** Checkpoints, then pastes the brief for the pending edits into the active agent tab. */
+  async function send() {
+    const tab = activeTab;
+    if (sending || !tab || tab.kind === "shell" || tab.exited || !edits.length) return;
+    const sent = edits;
+    setSending(true);
+    setDiff(null);
+    setNotice("");
+    try {
+      const cp = await checkpoint();
+      const brief = await api.agentPrompt(root, sent);
+      await api.terminalWrite(tab.id, `\x1b[200~${brief}\x1b[201~\r`);
+      runCheckpoints.current.push(cp.id);
+      setHasCheckpoint(true);
+      appliedRef.current = sent;
+      // The agent works from the edit list; previews left in the DOM would mix with its HMR'd result.
+      post({ type: "clear-optimistic" });
+      setEdits((q) => q.filter((e) => !sent.includes(e)));
+      setNotice(`Sent ${sent.length} edit(s) to ${tab.title}.`);
+      setPanel("terminal");
+    } catch (e) {
+      setNotice(String(e));
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function undo() {
     const cp = runCheckpoints.current[runCheckpoints.current.length - 1];
@@ -268,6 +241,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
     try {
       await api.restoreCheckpoint(root, cp);
       runCheckpoints.current.pop();
+      setHasCheckpoint(runCheckpoints.current.length > 0);
       post({ type: "clear-optimistic" });
       setDiff(null);
       setNotice(`Restored checkpoint ${cp}.`);
@@ -275,6 +249,8 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       setNotice(`Undo failed: ${e}`);
     }
   }
+
+  const agentTab = activeTab && activeTab.kind !== "shell" && !activeTab.exited;
 
   return (
     // The panel group sets an inline height:100%, so the viewport height lives on a wrapper.
@@ -289,12 +265,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
           <div className="min-h-0 flex-1">
             <Library root={root} previewUrl={url} onDragging={setDragging} />
           </div>
-          <SettingsFooter
-            onAgents={(list) => {
-              setAgents(list);
-              setAgent((cur) => (list.some((a) => a.kind === cur && a.loggedIn) ? cur : list.find((a) => a.loggedIn)?.kind ?? null));
-            }}
-          />
+          <SettingsFooter onAgents={setAgents} />
         </div>
       </ResizablePanel>
       <ResizableHandle />
@@ -338,33 +309,24 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       <ResizableHandle />
       <ResizablePanel defaultSize="25" minSize="16">
         <div className="flex h-full flex-col">
-          <Tabs defaultValue="properties" className="min-h-0 flex-1 p-2">
+          <Tabs value={panel} onValueChange={setPanel} className="min-h-0 flex-1 p-2">
             <TabsList>
               <TabsTrigger value="properties">Properties</TabsTrigger>
-              <TabsTrigger value="agent">Agent</TabsTrigger>
+              <TabsTrigger value="terminal">Terminal</TabsTrigger>
             </TabsList>
             <TabsContent value="properties" className="min-h-0 overflow-auto">
               <Properties selection={selection} scope={scope} edits={edits} onEdit={addEdit} />
             </TabsContent>
-            <TabsContent value="agent" className="min-h-0">
-              <AgentChat
-                transcript={transcript}
-                agents={agents}
-                agent={agent}
-                setAgent={setAgent}
-                draft={draft}
-                setDraft={setDraft}
-                running={running}
-                onSend={run}
-                onCancel={() => api.cancelAgent().catch((e) => say("error", String(e)))}
-              />
+            {/* Kept mounted so terminals and their scrollback outlive switching to Properties. */}
+            <TabsContent value="terminal" keepMounted className="flex min-h-0 flex-col overflow-hidden rounded-md border">
+              <TerminalPanel root={root} agents={agents} onActive={setActiveTab} />
             </TabsContent>
           </Tabs>
 
           <div className="flex max-h-[45%] flex-col gap-2 overflow-auto border-t p-2 text-xs">
             <div className="flex items-center justify-between font-medium">
               <span>Pending edits ({edits.length})</span>
-              <span className="text-muted-foreground">{running ? "Agent running…" : ""}</span>
+              <span className="text-muted-foreground">{sending ? "Sending…" : ""}</span>
             </div>
             {edits.map((e) => (
               <div key={e.id} className="flex items-center gap-1">
@@ -378,12 +340,15 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
               </div>
             ))}
             <div className="flex gap-2">
-              <Button className="flex-1" size="sm" disabled={running || !agent || (!edits.length && !draft.trim())} onClick={run}>
-                Apply ⌘↵
-              </Button>
-              <Button size="sm" variant="outline" disabled={running} onClick={undo}>Undo</Button>
+              {/* The span carries the hint: a disabled button gets no pointer events. */}
+              <span className="flex flex-1" title={agentTab ? undefined : "Open and select an agent tab in Terminal to send edits."}>
+                <Button className="flex-1" size="sm" disabled={sending || !agentTab || !edits.length} onClick={send}>
+                  Send to agent
+                </Button>
+              </span>
+              <Button size="sm" variant="outline" disabled={sending || !hasCheckpoint} onClick={showDiff}>Show diff</Button>
+              <Button size="sm" variant="outline" disabled={sending || !hasCheckpoint} onClick={undo}>Undo</Button>
             </div>
-            {!agent && <p className="text-muted-foreground">No logged-in agent CLI detected.</p>}
             {notice && <p className="text-muted-foreground">{notice}</p>}
             {diff && (
               <div className="flex flex-col gap-1">
