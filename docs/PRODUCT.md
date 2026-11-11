@@ -107,7 +107,7 @@ Agents run as their own interactive CLIs in Ghostty-style terminal tabs, beside 
   3. paste it into the active agent tab as a bracketed paste, followed by Return
   4. revert the previews and clear the pending edits, then switch to the Terminal tab
 - **Or ask in the tab:** "apply my Divina edits" works in any agent tab, because the `get_pending_edits` MCP tool returns the edits plus the same brief.
-- **Show diff** lists changes since the last sent checkpoint, flagging files outside the edited ones. **Undo** restores the latest checkpoint from this app session and walks back one step at a time. Divina can't tell when an interactive agent is done, so both are buttons.
+- **Show diff** lists changes since the last sent checkpoint, flagging files outside the edited ones. **Undo** restores the latest checkpoint from this app session and walks back one step at a time. When the agent calls the `edits_applied` MCP tool after a send, Divina runs Show diff for it and shows the agent's one-line summary; Undo stays a button. Without a sent checkpoint the call is only acknowledged.
 - **Not a git repo:** the user is asked once whether to run `git init`. Checkpoints need a repo, and sending is cancelled if they decline.
 
 #### Component library
@@ -156,13 +156,14 @@ When the Click-to-code source tagging checkbox is on, Divina adds dev-only `NODE
 The brief (pasted by Send to agent, and returned by `get_pending_edits`) contains:
 - the pending edits as JSON, with source refs, owner chain, viewport and scope
 - for untagged edits, the selector, text and candidate source locations; for catalog inserts, the library's install command and usage
-- these instructions: implement only the requested changes; keep the project's patterns; map scope `all`, `tablet-down` and `mobile-down` to unprefixed, `max-lg:` and `max-md:` classes; no absolute positioning; no unrelated rewrites; verify with the divina `screenshot_frame` tool at the requested viewport and correct any mismatch before finishing
+- these instructions: implement only the requested changes; keep the project's patterns; map scope `all`, `tablet-down` and `mobile-down` to unprefixed, `max-lg:` and `max-md:` classes; no absolute positioning; no unrelated rewrites; verify with the divina `screenshot_frame` tool at the requested viewport and correct any mismatch before finishing; then call the divina `edits_applied` tool with a one-line summary
 
 The agent also has the Divina MCP server, which runs locally over HTTP with a bearer token:
 - `get_pending_edits`: the edits plus the brief, so "apply my Divina edits" works in any agent tab
 - `screenshot_frame`: a native WKWebView snapshot of the frame at the current viewport, with an in-page capture as fallback
 - `get_dom_snapshot`: the DOM tree with source refs
 - `get_console_errors`
+- `edits_applied(summary?)`: the agent says it's done. After a send, Divina shows the diff and the summary. It never undoes or runs anything.
 
 ## Files Divina writes
 
@@ -192,7 +193,7 @@ Checkpoints are git objects under `refs/divina/checkpoints/<n>`, not files.
 
 - **Limited canvas editing without tagging.** Without source tagging (non-React projects, or tagging off), clicking in the preview selects nothing, because the overlay needs `data-divina-src`. Library drops still work through DOM anchors, and agents in terminal tabs work as usual.
 - **Untagged drops are located by a guess.** The text search only finds text written literally in the source: not text built at runtime, i18n keys or icon-only elements. Repeated text gives several candidates. The agent picks and checks with screenshots, and can still pick wrong. Outside git the search reads every file, with no size limit.
-- **No "agent finished" signal.** Interactive agents don't report completion, so Show diff and Undo are manual. Divina-side sessions are gone; each CLI keeps its own history (resume with its own commands).
+- **The "agent finished" signal is best effort.** The brief asks the agent to call `edits_applied`, but it may forget, call it early or not at all (for example when the user asks for edits without the brief). Show diff stays available as a button, and Undo is always manual. Divina-side sessions are gone; each CLI keeps its own history (resume with its own commands).
 - **Terminal tabs:** the terminal theme is set when a tab opens, so a light/dark switch only applies to new tabs. Shortcuts don't fire while focus is in the preview iframe. If WKWebView lets the app menu's Close Window win over ⌘W, the window closes instead of the tab (untested in the app; the fix is a custom menu).
 - **Catalog:** two bundled libraries so far (shadcn/ui, Thaw). Custom libraries have no thumbnails and can't be edited or deleted from the app (edit the JSON file). Thaw thumbnails were captured from Thaw's docs site.
 - **No owner chains on Next.js.** Tagging gives `file:line:col` only.

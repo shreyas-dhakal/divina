@@ -68,6 +68,7 @@ Each change previews instantly and joins **Pending edits**.
 - Open the **Terminal** tab on the right and start **Claude Code**, **Codex** or **opencode**. It's the real CLI, with your login and settings, and it can see the preview through Divina's tools. You can also open a **Shell** tab for your own work. ⌘T, ⌘W and ⌘1–9 work like Ghostty.
 - Press **Send to agent**. Divina saves a checkpoint and pastes your pending edits, with instructions, into the active agent tab. Or just type "apply my Divina edits" in the agent.
 - Talk to the agent in its tab as usual. Your page reloads with the real result as it edits.
+- When the agent says it's done (through Divina's `edits_applied` tool), the diff opens under Pending edits with the agent's summary. Agents sometimes forget, so **Show diff** is still there.
 - **Show diff** lists what changed since you sent. **Undo** restores the checkpoint. If the folder isn't a git repository, Divina asks once whether it may run `git init`.
 
 ## Good to know

@@ -7,7 +7,7 @@ How the product in `docs/PRODUCT.md` is built. Read that first. This file maps b
 - **Shell:** Tauri v2 (Rust), using the system webview (WKWebView on macOS), not Chromium. Identifier `dev.divina.app`, product name `Divina`.
 - **Host UI:** React + TypeScript + Vite, with Tailwind v4 and shadcn/ui (preset `b0`, Base UI primitives). The package manager is pnpm, which is pinned to 12.16.1 in CI.
 - **Overlay:** a framework-free TypeScript IIFE (`overlay/`, a pnpm workspace package), injected into the user's running app.
-- **Agents:** the user's installed `claude`, `codex` or `opencode` CLIs, run headless.
+- **Agents:** the user's installed `claude`, `codex` or `opencode` CLIs, run interactively in terminal tabs (PTYs).
 
 ## The big picture
 
@@ -45,7 +45,7 @@ How the product in `docs/PRODUCT.md` is built. Read that first. This file maps b
 | `Position` | `before`, `after`, `inside-start` or `inside-end` |
 | `EditRecord` | `{id, kind, target, viewport, scope, payload}`, where `kind` is `insert`, `move`, `resize`, `style`, `text` or `delete` |
 | `OverlayToHost` / `HostToOverlay` | the postMessage protocol between the host UI and the overlay |
-| `AgentInfo`, `AgentEvent` | detected agents, and the agent stream as `text`, `tool`, `done{ok}` or `error` |
+| `AgentInfo` | a detected agent CLI: `{kind, path, loggedIn, version}` |
 | `ProjectInfo` | `{root, framework, packageManager, tailwind, react, run, suggestedRun}`, where `framework` is only descriptive (`vite`, `next` or `custom`) |
 | `RunConfig` | `{command, url?, tagging}`, written by the user and saved in `.divina/run.json` |
 | `SRC_ATTR` / `OWNERS_ATTR` | the tag attributes `data-divina-src` and `data-divina-owners` |
@@ -130,6 +130,7 @@ All are registered in `src-tauri/src/lib.rs`, and the typed wrappers are in `src
 
 - `get_pending_edits` from host state (`{root, edits}`); the Rust side adds the `build_prompt` brief
 - `get_console_errors` from errors the overlay forwarded
+- `edits_applied` by running `showDiff()` and showing the summary in the notice, only when a sent checkpoint exists (`{diffShown}`); the Rust side turns that into a short ack
 - `get_dom_snapshot` from the overlay
 - `screenshot_frame` with `api.snapshotFrame` (the native WKWebView `takeSnapshot` of the frame rect, resampled to the viewport width), falling back to the overlay's in-page capture
 

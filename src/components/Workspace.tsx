@@ -155,6 +155,14 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       const requestId = req.id;
       if (req.tool === "get_pending_edits") return { root, edits: editsRef.current };
       if (req.tool === "get_console_errors") return consoleErrors.current;
+      // Only shows the diff of a sent checkpoint; the user still decides whether to Undo.
+      if (req.tool === "edits_applied") {
+        if (!runCheckpoints.current.length) return { diffShown: false };
+        const summary = typeof req.arguments.summary === "string" ? req.arguments.summary.trim() : "";
+        setNotice(summary ? `Agent finished: ${summary}` : "Agent finished.");
+        await showDiff();
+        return { diffShown: true };
+      }
       if (req.tool === "get_dom_snapshot") return askOverlay({ type: "request-snapshot", requestId });
       const frame = iframeRef.current?.getBoundingClientRect();
       if (frame) {

@@ -79,6 +79,7 @@ pub(crate) fn build_prompt(root: &Path, edits: &[EditRecord]) -> String {
             }
         }
     }
+    out.push_str("\n\nWhen you have implemented and verified the edits, call the divina MCP edits_applied tool with a one-line summary, so Divina shows the user the diff.");
     out
 }
 
@@ -173,6 +174,7 @@ mod tests {
         assert!(p.contains(r#""classes": "p-4""#));
         assert!(p.contains("max-lg:") && p.contains("absolute positioning") && p.contains("screenshot_frame"));
         assert!(!p.contains("no source location"));
+        assert!(p.trim_end().ends_with("call the divina MCP edits_applied tool with a one-line summary, so Divina shows the user the diff."));
     }
 
     #[test]
