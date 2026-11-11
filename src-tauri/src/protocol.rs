@@ -188,6 +188,8 @@ pub struct AgentInfo {
     pub kind: AgentKind,
     pub path: String,
     pub logged_in: bool,
+    #[serde(default)]
+    pub version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

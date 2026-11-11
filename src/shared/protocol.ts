@@ -111,6 +111,7 @@ export interface AgentInfo {
   kind: AgentKind;
   path: string;
   loggedIn: boolean;
+  version: string;
 }
 
 export type AgentEvent =
