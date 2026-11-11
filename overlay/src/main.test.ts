@@ -3,19 +3,23 @@ import { describe, expect, it } from "vitest";
 import { calculateDropPosition, resolveSourceRef } from "./overlay.js";
 
 describe("source references", () => {
-  it("builds an owner chain from marked ancestors and computes a map index", () => {
+  it("reads file:line:col tags, the owner chain and a map index", () => {
     const root = document.createElement("main");
     root.innerHTML = `
-      <section data-divina-src='{"file":"src/App.tsx","line":4,"col":2,"component":"App"}'>
-        <div data-divina-src='{"file":"src/List.tsx","line":9,"col":4,"component":"Row"}'></div>
-        <div data-divina-src='{"file":"src/List.tsx","line":9,"col":4,"component":"Row"}'></div>
+      <section data-divina-src="src/App.tsx:4:2">
+        <div data-divina-src="src/my:dir/List.tsx:9:4" data-divina-owners="src/App.tsx:12:5 src/main.tsx:3:1"></div>
+        <div data-divina-src="src/my:dir/List.tsx:9:4" data-divina-owners="src/App.tsx:12:5 src/main.tsx:3:1"></div>
       </section>`;
     const item = root.querySelectorAll("div")[1]!;
     expect(resolveSourceRef(item)).toEqual({
-      file: "src/List.tsx", line: 9, col: 4, component: "Row",
-      owners: [{ file: "src/App.tsx", line: 4, col: 2, component: "App", owners: [] }],
-      list: { file: "src/List.tsx", line: 9, index: 1 },
+      file: "src/my:dir/List.tsx", line: 9, col: 4,
+      owners: [{ file: "src/App.tsx", line: 12, col: 5, owners: [] }, { file: "src/main.tsx", line: 3, col: 1, owners: [] }],
+      list: { file: "src/my:dir/List.tsx", line: 9, index: 1 },
     });
+    // No owners attribute: tagged ancestors stand in.
+    const p = root.querySelector("section")!.appendChild(document.createElement("p"));
+    p.setAttribute("data-divina-src", "app/page.tsx:7:9");
+    expect(resolveSourceRef(p)?.owners).toEqual([{ file: "src/App.tsx", line: 4, col: 2, owners: [] }]);
   });
 });
 

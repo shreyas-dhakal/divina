@@ -84,7 +84,8 @@ pub fn mcp_config_for(agent: AgentKind) -> Result<String, String> {
         }
         AgentKind::Codex => {
             return Ok(format!(
-                "mcp_servers.divina.url = {:?}\nmcp_servers.divina.http_headers.Authorization = {:?}",
+                // `codex exec` never prompts, so the preview tools must be pre-approved or every call fails.
+                "mcp_servers.divina.url = {:?}\nmcp_servers.divina.http_headers.Authorization = {:?}\nmcp_servers.divina.default_tools_approval_mode = \"approve\"",
                 server.url, auth
             ));
         }

@@ -282,7 +282,9 @@ fn collect_dts(file: &Path, seen: &mut HashSet<PathBuf>, names: &mut Vec<String>
 fn component_exports(file: &Path) -> (Vec<String>, Vec<String>) {
     let (names, stars) = exports(&std::fs::read_to_string(file).unwrap_or_default());
     let is_component = |n: &String| {
-        n.starts_with(|c: char| c.is_ascii_uppercase()) && n.chars().any(|c| c.is_ascii_lowercase()) && !n.ends_with("Props")
+        n.starts_with(|c: char| c.is_ascii_uppercase()) && n.chars().any(|c| c.is_ascii_lowercase())
+            // Type-only/value helpers libraries export beside components (base-ui: AccordionRootDataAttributes).
+            && !["Props", "DataAttributes", "CssVariables", "Context", "State", "Config"].iter().any(|s| n.ends_with(s))
     };
     let mut seen = HashSet::new();
     (names.into_iter().filter(|n| is_component(n) && seen.insert(n.clone())).collect(), stars)
@@ -353,7 +355,7 @@ mod tests {
         w("app/page.tsx", "export default function Home() {}");
         w("node_modules/fancy-ui/package.json", r#"{"peerDependencies": {"react": "*"}, "exports": {".": {"import": {"types": "./dist/index.d.ts"}}}}"#);
         w("node_modules/fancy-ui/dist/index.d.ts", "export * from './dialog.js';\nexport * as Tabs from './tabs';\nexport declare const Badge: FC;\nexport type { BadgeProps };");
-        w("node_modules/fancy-ui/dist/dialog.d.ts", "export declare function Dialog(): JSX.Element;\nexport { DialogProps };");
+        w("node_modules/fancy-ui/dist/dialog.d.ts", "export declare function Dialog(): JSX.Element;\nexport { DialogProps, DialogRootDataAttributes };");
         w("node_modules/lodash/package.json", r#"{"types": "index.d.ts"}"#);
         w("node_modules/lodash/index.d.ts", "export declare function Chain(): void;");
 

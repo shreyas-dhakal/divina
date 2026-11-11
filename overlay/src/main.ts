@@ -119,6 +119,7 @@ function onPointerDown(event: PointerEvent) {
     const parent = selected.parentNode;
     if (!parent) return;
     drag = { element: selected, x: event.clientX, y: event.clientY, parent, next: selected.nextSibling, target: null, position: "after" };
+    event.preventDefault(); // no text selection while dragging
   }
 }
 function onPointerUp(event: PointerEvent) {
@@ -182,6 +183,9 @@ function onClick(event: MouseEvent) {
   const computed = getComputedStyle(target);
   const styles: Record<string, string> = {};
   for (const property of ["display", "position", "width", "height", "margin", "padding", "fontSize", "fontWeight", "color", "backgroundColor", "gap", "flexDirection", "gridTemplateColumns"]) styles[property] = computed.getPropertyValue(property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`));
+  // Seed the host's Text / Tailwind classes fields; text only for leaf elements.
+  styles.text = target.children.length ? "" : (target.textContent ?? "");
+  styles.className = target.getAttribute("class") ?? "";
   send({ type: "select", ref, rect: rectOf(target), computed: styles });
 }
 function onDoubleClick(event: MouseEvent) {

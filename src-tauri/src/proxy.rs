@@ -3,7 +3,7 @@
 
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::{ACCEPT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST, UPGRADE};
+use hyper::header::{ACCEPT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING, UPGRADE};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use std::sync::Mutex;
@@ -125,6 +125,7 @@ async fn forward(mut req: Request<Incoming>, authority: &str) -> Result<Response
     let (mut parts, body) = resp.into_parts();
     let html = body.collect().await.map_err(|e| e.to_string())?.to_bytes();
     let html = inject(&String::from_utf8_lossy(&html));
+    parts.headers.remove(TRANSFER_ENCODING); // body is now buffered (Next.js streams HTML chunked)
     parts.headers.insert(CONTENT_LENGTH, html.len().into());
     Ok(Response::from_parts(parts, full(html)))
 }
@@ -164,7 +165,8 @@ mod tests {
             let mut buf = [0u8; 1024];
             let _ = s.read(&mut buf).await;
             let body = "<html><head></head><body>ok</body></html>";
-            let resp = format!("HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\n\r\n{body}", body.len());
+            // chunked, like Next.js streaming
+            let resp = format!("HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ntransfer-encoding: chunked\r\n\r\n{:x}\r\n{body}\r\n0\r\n\r\n", body.len());
             s.write_all(resp.as_bytes()).await.unwrap();
         });
         let proxy = start(&format!("http://{up}/")).await.unwrap();

@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "dev.divina.app",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm -C overlay build && pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm -C overlay build && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -14,7 +14,8 @@
       {
         "title": "Divina",
         "width": 1440,
-        "height": 900
+        "height": 900,
+        "dragDropEnabled": false
       }
     ],
     "security": {

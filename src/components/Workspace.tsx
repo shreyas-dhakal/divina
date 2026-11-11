@@ -193,7 +193,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   useEffect(() => {
     const un = api.onAgentEvent((ev) => {
       if (ev.type === "text") say("agent", ev.text);
-      else if (ev.type === "tool") say("tool", `${ev.name} ${JSON.stringify(ev.input)}`);
+      else if (ev.type === "tool") say("tool", `${ev.name} ${JSON.stringify(ev.input)}`.slice(0, 300));
       else if (ev.type === "error") say("error", ev.message);
       else finishRef.current(ev.ok);
     });
@@ -210,6 +210,8 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
     setNotice("");
     if (prompt) say("user", prompt);
     if (edits.length) say("user", `Apply ${edits.length} edit(s)`);
+    // The agent works from the edit list; previews left in the DOM would mix with its HMR'd result.
+    post({ type: "clear-optimistic" });
     try {
       let cp;
       try {
@@ -259,7 +261,9 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   }
 
   return (
-    <ResizablePanelGroup className="h-screen bg-background text-foreground">
+    // The panel group sets an inline height:100%, so the viewport height lives on a wrapper.
+    <div className="h-screen bg-background text-foreground">
+    <ResizablePanelGroup>
       <ResizablePanel defaultSize="20" minSize="12">
         <div className="flex h-full flex-col">
           <div className="flex items-center gap-2 border-b p-2 text-xs">
@@ -368,5 +372,6 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
         </div>
       </ResizablePanel>
     </ResizablePanelGroup>
+    </div>
   );
 }

@@ -57,5 +57,6 @@ export const api = {
 
   /** Native PNG data URL of a host-window region (CSS px), resampled to outWidth. */
   snapshotFrame: (rect: { x: number; y: number; width: number; height: number }, outWidth: number) =>
-    invoke<string>("snapshot_frame", { ...rect, outWidth }),
+    // Fields copied explicitly: DOMRect's are prototype getters, so spreading one yields {}.
+    invoke<string>("snapshot_frame", { x: rect.x, y: rect.y, width: rect.width, height: rect.height, outWidth }),
 };

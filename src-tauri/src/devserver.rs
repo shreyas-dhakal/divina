@@ -50,6 +50,71 @@ export default async (env) => {
 };
 "#;
 
+/// Next.js tagging, also dev-only and outside the user's config: NEXT_PRELOAD is loaded with
+/// `NODE_OPTIONS=--require` and wraps Next's in-memory config so the project's own .tsx/.jsx get a
+/// `@jsxImportSource divina-jsx` pragma (NEXT_LOADER), resolved to NEXT_RUNTIME (Turbopack and webpack).
+const NEXT_PRELOAD: &str = r#"// Divina dev-only hook (NODE_OPTIONS --require): adds source tagging to the loaded Next config in memory.
+const Module = require("module");
+const path = require("path");
+const DIR = __dirname;
+const load = Module._load;
+let wrapped;
+Module._load = function (request, parent, isMain) {
+  const mod = load.apply(this, arguments);
+  if (!/[\\/]next[\\/]dist[\\/]server[\\/]config(\.js)?$/.test(Module._resolveFilename(request, parent))) return mod;
+  if (!wrapped) {
+    const loadConfig = mod.default;
+    wrapped = Object.create(mod, {
+      default: {
+        enumerable: true,
+        value: async (...args) => {
+          const config = await loadConfig(...args);
+          const tp = (config.turbopack ??= {});
+          tp.rules = { ...tp.rules };
+          for (const glob of ["*.tsx", "*.jsx"]) {
+            const prev = tp.rules[glob];
+            const loaders = [...((prev && prev.loaders) || []), path.join(DIR, "pragma-loader.cjs")];
+            tp.rules[glob] = { ...(prev || {}), loaders };
+          }
+          tp.resolveAlias = { ...tp.resolveAlias, "divina-jsx/jsx-dev-runtime": "./.divina/jsx-dev-runtime.mjs" };
+          const webpack = config.webpack;
+          config.webpack = (cfg, ctx) => {
+            cfg = webpack ? webpack(cfg, ctx) : cfg;
+            cfg.module.rules.push({ test: /\.[jt]sx$/, exclude: /node_modules/, use: path.join(DIR, "pragma-loader.cjs") });
+            cfg.resolve.alias = { ...cfg.resolve.alias, "divina-jsx/jsx-dev-runtime": path.join(DIR, "jsx-dev-runtime.mjs") };
+            return cfg;
+          };
+          return config;
+        },
+      },
+    });
+  }
+  return wrapped;
+};
+"#;
+const NEXT_LOADER: &str = r#"// Points the JSX of the project's own files at Divina's tagging runtime. Same line, so line numbers hold.
+module.exports = function (source) {
+  if (/[\\/]node_modules[\\/]|[\\/]\.divina[\\/]/.test(this.resourcePath)) return source;
+  return "/** @jsxImportSource divina-jsx */" + source;
+};
+"#;
+const NEXT_RUNTIME: &str = r#"import * as R from "react/jsx-dev-runtime";
+export const Fragment = R.Fragment;
+const ROOT = __ROOT__;
+// ponytail: file:line:col only; owner chains are skipped on Next (RSC/SSR owners would break hydration).
+export function jsxDEV(type, props, key, isStatic, source, self) {
+  if (source?.fileName && typeof type !== "symbol" && props && !("data-divina-src" in props)) {
+    let file = source.fileName.replace(/^\[project\]\//, "");
+    if (file.startsWith(ROOT)) file = file.slice(ROOT.length);
+    props = { ...props, "data-divina-src": file + ":" + source.lineNumber + ":" + source.columnNumber };
+  }
+  return R.jsxDEV(type, props, key, isStatic, source, self);
+}
+"#;
+
+/// Process-group id of the running dev server, under the project root.
+const PID_FILE: &str = ".divina/devserver.pid";
+
 struct State {
     status: DevServerStatus,
     /// Bumped on every start/stop; a supervisor from an older generation must not touch state.
@@ -87,6 +152,21 @@ pub async fn start_dev_server(app: AppHandle, root: String) -> Result<DevServerS
         }
         args.extend(["--config", ".divina/vite.config.mjs"]);
     }
+    let mut node_options = std::env::var("NODE_OPTIONS").unwrap_or_default();
+    if info.framework == Framework::Next {
+        let dir = Path::new(&info.root).join(".divina");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let root_js = serde_json::to_string(&format!("{}/", info.root)).map_err(|e| e.to_string())?;
+        for (name, body) in [
+            (".gitignore", "*\n".to_string()),
+            ("next-preload.cjs", NEXT_PRELOAD.to_string()),
+            ("pragma-loader.cjs", NEXT_LOADER.to_string()),
+            ("jsx-dev-runtime.mjs", NEXT_RUNTIME.replace("__ROOT__", &root_js)),
+        ] {
+            std::fs::write(dir.join(name), body).map_err(|e| e.to_string())?;
+        }
+        node_options = format!("{node_options} --require {}", serde_json::to_string(&dir.join("next-preload.cjs")).map_err(|e| e.to_string())?);
+    }
     let pm = match info.package_manager {
         PackageManager::Pnpm => "pnpm",
         PackageManager::Npm => "npm",
@@ -98,12 +178,19 @@ pub async fn start_dev_server(app: AppHandle, root: String) -> Result<DevServerS
         .current_dir(&info.root)
         .env("BROWSER", "none")
         .env("NO_COLOR", "1")
+        .env("NODE_OPTIONS", node_options.trim())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(unix)]
     cmd.process_group(0); // so stop() can kill the whole tree (pm -> node -> esbuild...)
 
+    // A server left behind by a crashed/killed app (no exit hook) would hold the port, and
+    // Next.js refuses a second dev server for the same dir.
+    // ponytail: trusts the recorded pid; a reused pid's group could be hit, check the command line if that bites.
+    if let Ok(pid) = std::fs::read_to_string(Path::new(&info.root).join(PID_FILE)) {
+        kill_tree(pid.trim().parse().ok());
+    }
     let generation = {
         let mut s = STATE.lock().unwrap();
         s.generation += 1;
@@ -137,6 +224,9 @@ async fn supervise(app: AppHandle, mut cmd: tokio::process::Command, generation:
                 return;
             }
             s.pid = child.id();
+        }
+        if let (Some(dir), Some(pid)) = (cmd.as_std().get_current_dir(), child.id()) {
+            let _ = std::fs::write(dir.join(PID_FILE), pid.to_string());
         }
         let (tx, mut rx) = mpsc::unbounded_channel();
         pipe(child.stdout.take(), LogStream::Stdout, tx.clone());

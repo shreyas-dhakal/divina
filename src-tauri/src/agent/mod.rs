@@ -62,9 +62,11 @@ fn detect() -> Vec<AgentInfo> {
                     .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
                     .and_then(|v| v.get("loggedIn")?.as_bool())
                     .unwrap_or(false),
-                AgentKind::Codex => output(&path, &["login", "status"])
-                    .map(|s| s.contains("Logged in"))
-                    .unwrap_or(false),
+                // codex prints its login status on stderr.
+                AgentKind::Codex => Command::new(&path)
+                    .args(["login", "status"])
+                    .output()
+                    .is_ok_and(|o| o.status.success() && [&o.stdout, &o.stderr].iter().any(|b| String::from_utf8_lossy(b).contains("Logged in"))),
                 // Stored credentials don't prove the default model works (e.g. an expired key
                 // answers 401), so probe with one tiny run.
                 // ponytail: costs one short model call per detection; cache per launch if it gets slow.
@@ -273,7 +275,7 @@ fn configure(
 fn build_prompt(prompt: &str, edits: &[EditRecord]) -> String {
     let edits = serde_json::to_string_pretty(edits).unwrap_or_else(|_| "[]".into());
     format!(
-        "{prompt}\n\nDivina pending edits (JSON, with source locations, owner chains, viewport size, and scope):\n{edits}\n\nImplement only the requested changes. Use the source usage sites and owner-component chain to locate the right code; preserve the existing project patterns and change only what is needed. For Tablet and Mobile scopes, use Tailwind max-width breakpoint classes so changes apply at that size and below; Desktop scope applies at all sizes. Do not use absolute positioning or rewrite unrelated code. After editing, verify the result using the divina MCP screenshot_frame tool at the requested viewport before finishing, and correct any visual mismatch."
+        "{prompt}\n\nDivina pending edits (JSON, with source locations, owner chains, viewport size, and scope):\n{edits}\n\nImplement only the requested changes. Use the source usage sites and owner-component chain to locate the right code; preserve the existing project patterns and change only what is needed. Scope \"all\" applies at every size; \"tablet-down\" means below 1024px (Tailwind `max-lg:`) and \"mobile-down\" below 768px (`max-md:`), so use those max-width variants for scoped changes. Do not use absolute positioning or rewrite unrelated code. After editing, verify the result using the divina MCP screenshot_frame tool at the requested viewport before finishing, and correct any visual mismatch."
     )
 }
 
