@@ -40,6 +40,8 @@ export const api = {
   listComponents: (root: string) => invoke<LibraryComponent[]>("list_components", { root }),
   runInstaller: (root: string, command: string) =>
     invoke<void>("run_installer", { root, command }),
+  onInstallerLog: (cb: (log: DevServerLog) => void): Promise<UnlistenFn> =>
+    listen<DevServerLog>("installer://log", (e) => cb(e.payload)),
 
   createCheckpoint: (root: string, label: string) =>
     invoke<Checkpoint>("create_checkpoint", { root, label }),
