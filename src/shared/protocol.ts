@@ -128,6 +128,7 @@ export interface ProjectInfo {
   root: string;
   framework: "vite" | "next";
   packageManager: "pnpm" | "npm" | "yarn" | "bun";
+  tailwind: boolean;
 }
 
 export type DevServerStatus =
@@ -150,3 +151,13 @@ export interface Checkpoint {
 export interface McpServerInfo {
   url: string;
 }
+
+/**
+ * Dev-only JSX source tags the dev server injects on every element (Vite projects).
+ * SRC_ATTR: "file:line:col" of the JSX that rendered the element, path relative to the
+ * project root; a component forwarding props onto its root DOM node passes its usage
+ * site through, so the usage site wins. OWNERS_ATTR: space-separated "file:line:col"
+ * usage sites of the owning components, innermost first. Parse from the right (paths may hold ":").
+ */
+export const SRC_ATTR = "data-divina-src";
+export const OWNERS_ATTR = "data-divina-owners";

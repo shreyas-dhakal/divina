@@ -236,6 +236,7 @@ pub struct ProjectInfo {
     pub root: String,
     pub framework: Framework,
     pub package_manager: PackageManager,
+    pub tailwind: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

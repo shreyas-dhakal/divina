@@ -1,21 +1,258 @@
-#![allow(unused_variables, dead_code)] // stub: remove once implemented
-
-use crate::protocol::DevServerStatus;
+use crate::protocol::{DevServerLog, DevServerStatus, Framework, LogStream, PackageManager};
+use std::path::Path;
+use std::process::Stdio;
+use std::sync::Mutex;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter};
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
+use tokio::sync::{mpsc, oneshot};
 
 /// Emitted per output line with a `DevServerLog` payload.
 pub const LOG_EVENT: &str = "devserver://log";
 
+/// Wrapper Vite config written to `<root>/.divina/` and passed with `--config`, so the user's
+/// own config is loaded unchanged. It swaps `react/jsx-dev-runtime` for a shim that tags every
+/// element with SRC_ATTR / OWNERS_ATTR (see src/shared/protocol.ts). Dev-only by construction.
+const VITE_WRAPPER: &str = r#"import { loadConfigFromFile, mergeConfig } from "vite";
+const ROOT = process.cwd();
+const ID = "\0divina-jsx-dev-runtime";
+const runtime = `
+import * as R from "react/jsx-dev-runtime";
+import * as React from "react";
+export const Fragment = R.Fragment;
+const ROOT = ${JSON.stringify(ROOT + "/")};
+const I = React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE || React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+const owner = () => I?.A?.getOwner?.() ?? I?.ReactCurrentOwner?.current ?? null;
+export function jsxDEV(type, props, key, isStatic, source, self) {
+  if (source?.fileName && typeof type !== "symbol" && props && !("data-divina-src" in props)) {
+    const file = source.fileName.startsWith(ROOT) ? source.fileName.slice(ROOT.length) : source.fileName;
+    const src = file + ":" + source.lineNumber + ":" + source.columnNumber;
+    const owners = [];
+    for (let f = owner(); f; f = f._debugOwner) {
+      const s = f.pendingProps?.["data-divina-src"];
+      if (s && s !== src && owners[owners.length - 1] !== s) owners.push(s);
+    }
+    props = { ...props, "data-divina-src": src };
+    if (owners.length) props["data-divina-owners"] = owners.join(" ");
+  }
+  return R.jsxDEV(type, props, key, isStatic, source, self);
+}`;
+export default async (env) => {
+  const user = (await loadConfigFromFile(env, undefined, ROOT))?.config ?? {};
+  return mergeConfig(user, {
+    plugins: [{
+      name: "divina-source-tags",
+      enforce: "pre",
+      resolveId: (id, importer) => (id === "react/jsx-dev-runtime" && importer !== ID ? ID : null),
+      load: (id) => (id === ID ? runtime : null),
+    }],
+  });
+};
+"#;
+
+struct State {
+    status: DevServerStatus,
+    /// Bumped on every start/stop; a supervisor from an older generation must not touch state.
+    generation: u64,
+    pid: Option<u32>,
+}
+
+static STATE: Mutex<State> = Mutex::new(State { status: DevServerStatus::Stopped, generation: 0, pid: None });
+
 #[tauri::command]
-pub fn start_dev_server(root: String) -> Result<DevServerStatus, String> {
-    Err("unimplemented".into())
+pub async fn start_dev_server(app: AppHandle, root: String) -> Result<DevServerStatus, String> {
+    let info = crate::project::open_project(root)?; // also stops any running server
+    let pkg: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(Path::new(&info.root).join("package.json")).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    let dev = pkg["scripts"]["dev"].as_str().ok_or("package.json has no \"dev\" script")?;
+
+    let mut args: Vec<&str> = vec!["run", "dev"];
+    if info.package_manager == PackageManager::Npm {
+        args.push("--");
+    }
+    // ponytail: tagging only when `dev` is plain `vite ...`; Next.js and custom scripts run untagged.
+    if info.framework == Framework::Vite && (dev == "vite" || dev.starts_with("vite ")) {
+        let dir = Path::new(&info.root).join(".divina");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join(".gitignore"), "*\n").map_err(|e| e.to_string())?;
+        std::fs::write(dir.join("vite.config.mjs"), VITE_WRAPPER).map_err(|e| e.to_string())?;
+        args.extend(["--config", ".divina/vite.config.mjs"]);
+    }
+    let pm = match info.package_manager {
+        PackageManager::Pnpm => "pnpm",
+        PackageManager::Npm => "npm",
+        PackageManager::Yarn => "yarn",
+        PackageManager::Bun => "bun",
+    };
+    let mut cmd = tokio::process::Command::new(pm);
+    cmd.args(&args)
+        .current_dir(&info.root)
+        .env("BROWSER", "none")
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    cmd.process_group(0); // so stop() can kill the whole tree (pm -> node -> esbuild...)
+
+    let generation = {
+        let mut s = STATE.lock().unwrap();
+        s.generation += 1;
+        s.status = DevServerStatus::Starting;
+        s.generation
+    };
+    let (ready_tx, ready_rx) = oneshot::channel();
+    tauri::async_runtime::spawn(supervise(app, cmd, generation, ready_tx));
+    let _ = tokio::time::timeout(Duration::from_secs(60), ready_rx).await;
+    Ok(dev_server_status())
+}
+
+/// Runs the dev server, restarting it once if it exits on its own.
+async fn supervise(app: AppHandle, mut cmd: tokio::process::Command, generation: u64, ready: oneshot::Sender<()>) {
+    let mut ready = Some(ready);
+    for attempt in 0..2 {
+        let log = |stream, line: String| {
+            let _ = app.emit(LOG_EVENT, DevServerLog { stream, line });
+        };
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                log(LogStream::Stderr, format!("could not start dev server: {e}"));
+                break;
+            }
+        };
+        {
+            let mut s = STATE.lock().unwrap();
+            if s.generation != generation {
+                kill_tree(child.id());
+                return;
+            }
+            s.pid = child.id();
+        }
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        pipe(child.stdout.take(), LogStream::Stdout, tx.clone());
+        pipe(child.stderr.take(), LogStream::Stderr, tx);
+        let mut running = false;
+        while let Some((stream, line)) = rx.recv().await {
+            if !running && let Some(url) = parse_local_url(&line) {
+                running = true;
+                match crate::proxy::start(&url).await {
+                    Ok(_) => {
+                        let mut s = STATE.lock().unwrap();
+                        if s.generation == generation {
+                            s.status = DevServerStatus::Running { url };
+                        }
+                    }
+                    Err(e) => log(LogStream::Stderr, format!("proxy failed: {e}")),
+                }
+                if let Some(r) = ready.take() {
+                    let _ = r.send(());
+                }
+            }
+            log(stream, line);
+        }
+        let code = child.wait().await.ok().and_then(|s| s.code());
+        let mut s = STATE.lock().unwrap();
+        if s.generation != generation {
+            return; // stopped on purpose
+        }
+        s.pid = None;
+        s.status = DevServerStatus::Crashed { code };
+        if attempt == 0 {
+            s.status = DevServerStatus::Starting;
+            drop(s);
+            log(LogStream::Stderr, format!("dev server exited ({code:?}), restarting once"));
+        }
+    }
+    crate::proxy::clear();
+}
+
+fn pipe(out: Option<impl AsyncRead + Unpin + Send + 'static>, stream: LogStream, tx: mpsc::UnboundedSender<(LogStream, String)>) {
+    let Some(out) = out else { return };
+    tauri::async_runtime::spawn(async move {
+        let mut lines = BufReader::new(out).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let _ = tx.send((stream, line));
+        }
+    });
+}
+
+/// Stops the dev server (if any) and its whole process tree. Safe to call from the exit hook.
+pub fn stop() {
+    let mut s = STATE.lock().unwrap();
+    s.generation += 1;
+    s.status = DevServerStatus::Stopped;
+    kill_tree(s.pid.take());
+    crate::proxy::clear();
+}
+
+fn kill_tree(pid: Option<u32>) {
+    let Some(pid) = pid else { return };
+    #[cfg(unix)]
+    let _ = std::process::Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
+    #[cfg(windows)]
+    let _ = std::process::Command::new("taskkill").args(["/T", "/F", "/PID", &pid.to_string()]).status();
 }
 
 #[tauri::command]
 pub fn stop_dev_server() -> Result<(), String> {
-    Err("unimplemented".into())
+    stop();
+    Ok(())
 }
 
 #[tauri::command]
 pub fn dev_server_status() -> DevServerStatus {
-    DevServerStatus::Stopped
+    STATE.lock().unwrap().status.clone()
+}
+
+/// Local URL from a Vite (`➜  Local:   http://localhost:5173/`) or Next.js
+/// (`- Local:        http://localhost:3000`, older `... url: http://localhost:3000`) line.
+fn parse_local_url(line: &str) -> Option<String> {
+    let line = strip_ansi(line);
+    let rest = &line[line.find("Local:").or_else(|| line.find("url:"))?..];
+    let start = rest.find("http://")?;
+    let url = rest[start..].split_whitespace().next()?;
+    Some(url.trim_end_matches(['/', ',']).to_string())
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // CSI: ESC [ params... final byte in @..~
+            if chars.next() == Some('[') {
+                for c in chars.by_ref() {
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_local_url as p;
+
+    #[test]
+    fn parses_dev_server_urls() {
+        assert_eq!(p("  ➜  Local:   http://localhost:5173/").as_deref(), Some("http://localhost:5173"));
+        assert_eq!(
+            p("  \x1b[32m➜\x1b[39m  \x1b[1mLocal\x1b[22m:   \x1b[36mhttp://localhost:\x1b[1m5174\x1b[22m/app/\x1b[39m").as_deref(),
+            Some("http://localhost:5174/app")
+        );
+        assert_eq!(p("   - Local:        http://localhost:3000").as_deref(), Some("http://localhost:3000"));
+        assert_eq!(
+            p("ready - started server on 0.0.0.0:3000, url: http://localhost:3000").as_deref(),
+            Some("http://localhost:3000")
+        );
+        assert_eq!(p("  ➜  Network: use --host to expose"), None);
+        assert_eq!(p("   - Network:      http://192.168.1.4:3000"), None);
+    }
 }
