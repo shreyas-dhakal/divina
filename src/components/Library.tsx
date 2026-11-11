@@ -1,11 +1,23 @@
 import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AddLibrary } from "@/components/AddLibrary";
 import { DRAG_MIME } from "@/components/Frame";
 import { api } from "@/lib/api";
-import type { LibraryComponent } from "@/shared/protocol";
+import type { CatalogLibrary, LibraryComponent, Stack } from "@/shared/protocol";
 
 const SOURCES: Record<LibraryComponent["source"], string> = { shadcn: "shadcn/ui", package: "Packages", local: "Project" };
+const PROJECT = "project";
+const ADD = "add";
+
+/** "Leptos 0.7", "React 19": major only, unless it's 0.x where the minor is the breaking one. */
+function stackLabel(s: Stack | null) {
+  if (!s || s.framework === "unknown") return "";
+  const [major, minor] = (s.version ?? "").split(".");
+  const name = s.framework[0].toUpperCase() + s.framework.slice(1);
+  return [name, major === "0" ? `0.${minor}` : major].filter(Boolean).join(" ");
+}
 
 /** `previewUrl` is the proxied dev server; Vite projects get live thumbnails from it. */
 export function Library({ root, previewUrl, onDragging }: { root: string; previewUrl: string | null; onDragging: (d: boolean) => void }) {
@@ -16,10 +28,18 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
   const [command, setCommand] = useState("");
   const [output, setOutput] = useState<string[]>([]);
   const [installing, setInstalling] = useState(false);
+  const [stack, setStack] = useState<Stack | null>(null);
+  const [catalog, setCatalog] = useState<CatalogLibrary[]>([]);
+  const [selected, setSelected] = useState(PROJECT);
+  const [adding, setAdding] = useState(false);
 
   const refresh = () => api.listComponents(root).then(setComponents, () => setComponents([]));
   useEffect(() => {
     refresh();
+    setSelected(PROJECT);
+    // No backend support (or no catalog for this stack) just shows no catalog.
+    api.detectStack(root).then(setStack, () => setStack(null));
+    api.listCatalog(root).then(setCatalog, () => setCatalog([]));
     const un = api.onInstallerLog((l) => setOutput((o) => [...o.slice(-200), l.line]));
     const onMessage = (e: MessageEvent) => {
       const { divinaPreview: key, ok } = e.data ?? {};
@@ -47,13 +67,35 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
 
   const q = query.toLowerCase();
   const shown = components.filter((c) => c.name.toLowerCase().includes(q));
+  const lib = catalog.find((l) => l.id === selected);
+  const items = [{ value: PROJECT, label: "Your project" }, ...catalog.map((l) => ({ value: l.id, label: l.name }))];
 
   return (
     <div className="flex h-full flex-col gap-2 p-2 text-sm">
+      <div className="flex items-center gap-2">
+        <Select
+          items={items}
+          value={lib ? selected : PROJECT}
+          onValueChange={(v) => (v === ADD ? setAdding(true) : v && setSelected(v))}
+        >
+          <SelectTrigger size="sm" className="min-w-0 flex-1">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {items.map((i) => (
+              <SelectItem key={i.value} value={i.value}>{i.label}</SelectItem>
+            ))}
+            <SelectSeparator />
+            <SelectItem value={ADD}>Add library…</SelectItem>
+          </SelectContent>
+        </Select>
+        <span className="shrink-0 text-xs text-muted-foreground">{stackLabel(stack)}</span>
+      </div>
       <Input placeholder="Search components" value={query} onChange={(e) => setQuery(e.target.value)} />
       <ScrollArea className="min-h-0 flex-1">
-        {shown.length === 0 && <p className="p-2 text-muted-foreground">No components found.</p>}
-        {(Object.keys(SOURCES) as LibraryComponent["source"][]).map((src) => {
+        {lib && <CatalogGrid lib={lib} query={q} onDragging={onDragging} />}
+        {!lib && shown.length === 0 && <p className="p-2 text-muted-foreground">No components found.</p>}
+        {!lib && (Object.keys(SOURCES) as LibraryComponent["source"][]).map((src) => {
           const group = shown.filter((c) => c.source === src);
           if (!group.length) return null;
           return (
@@ -113,6 +155,53 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
       {output.length > 0 && (
         <pre className="max-h-32 overflow-auto rounded bg-muted p-2 text-xs whitespace-pre-wrap">{output.join("\n")}</pre>
       )}
+      <AddLibrary
+        root={root}
+        stack={stack}
+        open={adding}
+        onCancel={() => setAdding(false)}
+        onSaved={(c, id) => {
+          setCatalog(c);
+          setSelected(id);
+          setAdding(false);
+        }}
+      />
+    </div>
+  );
+}
+
+function CatalogGrid({ lib, query, onDragging }: { lib: CatalogLibrary; query: string; onDragging: (d: boolean) => void }) {
+  const shown = lib.components.filter((c) => c.name.toLowerCase().includes(query));
+  if (!shown.length) return <p className="p-2 text-muted-foreground">No components found.</p>;
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {shown.map((c) => (
+        <div
+          key={c.name}
+          draggable
+          onDragStart={(e) => {
+            // `library` marks a catalog drop; Workspace forwards it in preview-insert.
+            const library = { id: lib.id, name: lib.name, install: lib.install, usage: c.usage };
+            e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ name: c.name, importFrom: lib.importFrom ?? "", library }));
+            onDragging(true);
+          }}
+          onDragEnd={() => onDragging(false)}
+          className="cursor-grab overflow-hidden rounded border hover:bg-muted"
+          title={c.usage || c.name}
+        >
+          {c.thumbnail && (
+            <img
+              src={c.thumbnail}
+              alt=""
+              draggable={false}
+              loading="lazy"
+              className="h-16 w-full border-b bg-background object-contain"
+              onError={(e) => (e.currentTarget.hidden = true)}
+            />
+          )}
+          <div className="truncate px-2 py-1 text-xs">{c.name}</div>
+        </div>
+      ))}
     </div>
   );
 }
