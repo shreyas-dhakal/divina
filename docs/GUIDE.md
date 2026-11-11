@@ -22,7 +22,7 @@ To check what Divina sees, open the settings row in the bottom-left corner, go t
 
 ## 2. Open a project
 
-On the start screen, type or browse to your project folder and press **Open**. You can also create a new Vite + React + shadcn project there.
+On the start screen, type or browse to your project folder and press **Open**. You can also create a new project there from a template: React + Vite with shadcn/ui, Next.js, Vue, SvelteKit, or Leptos (Rust) with Thaw. Leptos needs `trunk` and the `wasm32-unknown-unknown` Rust target to run; the template list tells you if they're missing.
 
 ## 3. Tell Divina how to run it
 
@@ -58,20 +58,20 @@ You can change all of this later from **Run command…** under the preview.
 - **Resize** with the corner handle, and **double-click** text to edit it.
 - **Properties** (right panel): change text, classes, padding, margin, gap, width and height.
 - **Library** (left panel): drag a component into the frame. On Vite projects each component shows a live thumbnail rendered by your dev server. To install more, type a command in the installer box, for example `pnpm dlx shadcn@latest add card`.
-- **Component libraries:** the dropdown above the library lists ready-made libraries for your stack (shadcn/ui for React, Thaw for Leptos), with pictures of each component. Drag one in and the agent installs the library if needed when you press Apply. **Add library…** adds your own, for this project or all of them.
+- **Component libraries:** the dropdown above the library lists ready-made libraries for your stack (shadcn/ui for React, Thaw for Leptos), with pictures of each component. Drag one in and the agent installs the library if needed when you send your edits to it. **Add library…** adds your own, for this project or all of them.
 - **Any framework:** drops work even without source tagging, for example in a Rust, Vue or Django frontend. Divina searches your code for the text near the drop and the agent picks the spot, checking with a screenshot.
 
 Each change previews instantly and joins **Pending edits**.
 
 ## 5. Let the agent write the code
 
-- Pick an agent in the **Agent** tab and optionally type what you want ("make this a pricing section").
-- Press **Apply** or ⌘↵. Divina saves a checkpoint, the agent edits your source files, checks a screenshot of the preview, and your page reloads with the real result.
-- Review the changed files below. Files outside the ones you edited are flagged.
-- **Undo** restores the checkpoint. If the folder isn't a git repository, Divina asks once whether it may run `git init`.
+- Open the **Terminal** tab on the right and start **Claude Code**, **Codex** or **opencode**. It's the real CLI, with your login and settings, and it can see the preview through Divina's tools. You can also open a **Shell** tab for your own work. ⌘T, ⌘W and ⌘1–9 work like Ghostty.
+- Press **Send to agent**. Divina saves a checkpoint and pastes your pending edits, with instructions, into the active agent tab. Or just type "apply my Divina edits" in the agent.
+- Talk to the agent in its tab as usual. Your page reloads with the real result as it edits.
+- **Show diff** lists what changed since you sent. **Undo** restores the checkpoint. If the folder isn't a git repository, Divina asks once whether it may run `git init`.
 
 ## Good to know
 
-- **Without tagging** (for example on Laravel Blade pages), you can't select elements in the preview, but you can still ask the agent in chat. It still sees screenshots and the page structure.
+- **Without tagging** (for example on Laravel Blade pages), you can't select elements in the preview, but you can still drop library components and ask the agent in its tab. It still sees screenshots and the page structure.
 - **Divina never commits for you.** Checkpoints are stored outside your branches.
 - **Everything Divina stores** for a project is in `.divina/`. Delete that folder to reset it.

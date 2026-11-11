@@ -15,12 +15,13 @@ How the product in `docs/PRODUCT.md` is built. Read that first. This file maps b
  Divina window (Tauri webview, host UI: src/)
  ├─ Library ─ drag ──────────────┐
  ├─ Frame: <iframe src=proxy> ◄──┼── postMessage (HostToOverlay / OverlayToHost) ──► overlay (in user's page)
- ├─ Properties / Agent / Edits   │
+ ├─ Properties / Terminal / Edits│
  └─ api.ts ── invoke/listen ─────┴──► Rust backend (src-tauri/src)
                                         ├─ project.rs     open/inspect project, run config
                                         ├─ devserver.rs   runs user's command, finds preview URL
                                         ├─ proxy.rs       HTTP+WS reverse proxy, injects overlay into HTML
-                                        ├─ agent/         detect + run CLIs, stream events, sessions
+                                        ├─ agent/         detect CLIs, build the edit brief, locate untagged drops
+                                        ├─ terminal.rs    PTYs for terminal tabs (shell, agent CLIs + MCP)
                                         ├─ mcp/           local MCP server the agent calls
                                         ├─ checkpoint.rs  git-object snapshots, restore, diff
                                         ├─ library.rs     component discovery, installer, thumbnail page
@@ -28,7 +29,7 @@ How the product in `docs/PRODUCT.md` is built. Read that first. This file maps b
                                         └─ snapshot.rs    native WKWebView screenshot
 
  user's command ($SHELL -lc) ─► user's dev server ◄─ proxy ◄─ iframe
- agent CLI ─► edits source ─► dev server hot reload ─► iframe updates
+ terminal tab (PTY) ─► agent CLI ─► edits source ─► dev server hot reload ─► iframe updates
  agent CLI ─► MCP (HTTP, bearer) ─► Rust ─► "mcp://request" ─► host UI ─► overlay or native snapshot ─► mcp_respond
 ```
 
@@ -56,14 +57,14 @@ All are registered in `src-tauri/src/lib.rs`, and the typed wrappers are in `src
 | Command | Module | Notes |
 | --- | --- | --- |
 | `open_project(path)` | project | stops any dev server, then inspects. Any folder opens. |
-| `create_project(parent, name)` | project | shadcn Vite template. Saves no run config. |
+| `list_templates()`, `create_project(parent, name, template)` | project | templates: react-vite, next, vue, svelte, leptos; tool probes set `available`/`missing`. Saves no run config. |
 | `save_run_config(root, run)` | project | writes `.divina/run.json`, returns `ProjectInfo` |
 | `start_dev_server(root)` | devserver | `NEEDS_RUN_CONFIG` if no command is saved |
 | `stop_dev_server`, `dev_server_status` | devserver | |
 | `proxy_url` | proxy | |
 | `detect_agents` | agent | returns installed CLIs only, with login state |
-| `run_agent(agent, projectDir, prompt, edits)` | agent | checkpoints first and returns the `Checkpoint`. Errors with `NO_GIT_REPO`. |
-| `cancel_agent` | agent | |
+| `agent_prompt(root, edits)` | agent | the brief Send to agent pastes; "" for no edits |
+| `terminal_open(root, kind, cols, rows)`, `terminal_write(id, data)`, `terminal_resize(id, cols, rows)`, `terminal_close(id)`, `terminal_close_all` | terminal | agent kinds start the MCP server and attach it |
 | `start_mcp_server`, `mcp_config_for(agent)`, `mcp_respond(id, payload)` | mcp | |
 | `list_components(root)`, `run_installer(root, command)` | library | |
 | `detect_stack(root)`, `list_catalog(root)`, `save_library(root, library, global)` | catalog | catalog data in `src-tauri/catalog/catalog.json`, thumbnails in `public/catalog/` |
@@ -75,7 +76,8 @@ All are registered in `src-tauri/src/lib.rs`, and the typed wrappers are in `src
 | --- | --- |
 | `devserver://log` | `DevServerLog` |
 | `library://log` | `DevServerLog`, for installer output |
-| `agent://event` | `AgentEvent` |
+| `terminal://data` | `TerminalData {id, data}`, base64 PTY output |
+| `terminal://exit` | `TerminalExit {id, code}` |
 | `mcp://request` | `McpRequest {id, tool, arguments}`, answered with `mcp_respond` |
 
 ## Key flows
@@ -110,24 +112,23 @@ All are registered in `src-tauri/src/lib.rs`, and the typed wrappers are in `src
 4. **Library thumbnails:** `list_components` writes `.divina/preview.html` + `preview.tsx` (a lazy `import()` per module) for Vite projects. `Library` loads `<proxy>/.divina/preview.html?m=<importFrom>&n=<name>` in `pointer-events-none` iframes; the page posts `{divinaPreview: "importFrom#name", ok}` to the parent.
 5. **Properties edits** send `preview-edit`. `clear-optimistic` reverts everything.
 
-### Agent run
+### Terminal tabs and Send to agent
 
-1. `Workspace.run()` calls `run_agent`, which does the following in `agent/mod.rs`:
-   1. `checkpoint::create_checkpoint`
-   2. `mcp::start_mcp_server`, which is idempotent
-   3. builds the prompt with `build_prompt(root, prompt, edits)`, then spawns the CLI in its own process group. Untagged edits get a section with candidate locations from `agent/locate.rs`; catalog inserts get the library's install command and usage.
-2. The CLI is started like this:
-   - **Claude:** `claude -p <prompt> --output-format stream-json --verbose --restricted --permission-mode acceptEdits --allowedTools mcp__divina --strict-mcp-config --mcp-config <json>`, plus `--resume <id>` for later runs
-   - **Codex:** `codex exec --json --sandbox workspace-write --cd <root> <prompt>`, or `codex exec resume --json -c sandbox_mode="workspace-write" <id> <prompt>` for later runs, plus `-c mcp_servers.divina.*` settings
-   - **opencode:** `opencode run --format json --dir <root> <prompt>`, plus `--session <id>` for later runs, with `OPENCODE_CONFIG_CONTENT=<json>`
-3. `agent/streams.rs` parses each CLI's JSON stream into `AgentEvent`s, and the session ids are saved in `.divina/session.json`.
-4. On `done`, the host clears the optimistic previews, removes the applied edits and shows `diff_since_checkpoint`, flagging files outside the edited ones (`changedFiles` in Workspace).
+1. `TerminalPanel` (`src/components/TerminalPanel.tsx`, `ghostty-web`) calls `terminal_open`. `terminal.rs` spawns the process in a PTY in the project folder (`TERM=xterm-256color`) and streams output on `terminal://data` from a reader thread:
+   - **Shell:** `$SHELL -l`
+   - **Claude:** `claude --mcp-config <json>`
+   - **Codex:** `codex --cd <root>` plus `-c mcp_servers.divina.*` settings
+   - **opencode:** `opencode <root>` with `OPENCODE_CONFIG_CONTENT=<json>`
+   Agent kinds call `mcp::start_mcp_server` (idempotent) and `mcp::mcp_config_for` first. Tabs stay mounted while hidden; keystrokes go to `terminal_write`, resizes to `terminal_resize`.
+2. **Send to agent** in `Workspace`: `create_checkpoint` (offering `init_git` on `NO_GIT_REPO`), then `agent_prompt(root, edits)`, which is `build_prompt` (untagged sections from `agent/locate.rs`, library notes for catalog inserts). The brief is written to the active agent tab as `ESC[200~ … ESC[201~` plus `\r`. Then the host clears the previews and the sent edits.
+3. **Show diff** calls `diff_since_checkpoint` for the latest sent checkpoint (`changedFiles` flags files outside the edits); **Undo** calls `restore_checkpoint`.
+4. `terminal_close_all` runs when the Workspace unmounts and on app exit.
 
 ### MCP bridge
 
 `mcp/mod.rs` is a minimal Streamable-HTTP JSON-RPC MCP server on `127.0.0.1` with a random port and a bearer token. `mcp_config_for` returns the matching config for each CLI. Each tool call emits `mcp://request`. `src/lib/mcpBridge.ts` relays it to the Workspace, which answers:
 
-- `get_pending_edits` from host state
+- `get_pending_edits` from host state (`{root, edits}`); the Rust side adds the `build_prompt` brief
 - `get_console_errors` from errors the overlay forwarded
 - `get_dom_snapshot` from the overlay
 - `screenshot_frame` with `api.snapshotFrame` (the native WKWebView `takeSnapshot` of the frame rect, resampled to the viewport width), falling back to the overlay's in-page capture
@@ -149,7 +150,9 @@ The 10 s timeout returns an error to the agent.
 | Canvas interactions | `overlay/src/*` (rebuild with `pnpm -C overlay build`) |
 | Component catalog | `src-tauri/catalog/catalog.json`, `src-tauri/src/catalog.rs`, `src/components/Library.tsx`, `src/components/AddLibrary.tsx`; regenerate thumbnails with `scripts/catalog-thumbnails/` |
 | Locating untagged drops | `buildDomAnchor` in `overlay/src/overlay.ts`, `src-tauri/src/agent/locate.rs` |
-| Agent prompt or CLI flags | `src-tauri/src/agent/mod.rs` (`build_prompt`, `configure`); stream parsing in `agent/streams.rs` |
+| Agent brief | `build_prompt` in `src-tauri/src/agent/mod.rs` |
+| Terminal tabs, agent CLI flags | `src-tauri/src/terminal.rs` (`command_for`), `src/components/TerminalPanel.tsx` |
+| Project templates | `list_templates`, `create_project`, `write_leptos_files` in `src-tauri/src/project.rs`; `src/components/Welcome.tsx` |
 | MCP tools | `src-tauri/src/mcp/mod.rs` and the relay in `Workspace.tsx` |
 | Settings | `src/components/Settings.tsx` |
 | Scope rules | `src/lib/viewport.ts`, the overlay's `scope()` in `overlay/src/main.ts`, and the scope sentence in `build_prompt`. Keep all three consistent. |

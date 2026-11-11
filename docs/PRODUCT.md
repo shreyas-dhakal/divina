@@ -15,8 +15,8 @@ Audience: developers. It started as the author's own test bed and is open source
 1. **The user is in control.** Divina never runs a project command the user didn't write. It never starts a dev server on its own or pre-fills commands; suggestions appear only as placeholder text. Opt-in behaviour (source tagging) is an explicit checkbox that explains exactly what it does.
 2. **Real code, real app.** The preview is the project's own dev server. Every change lands in the project's source files. Nothing is a mockup or an export.
 3. **Edits become responsive layout, never pixel pinning.** Moves are reorders or moves into another container in the flex or grid flow, and sizing and spacing become Tailwind classes. No absolute positioning.
-4. **The agent changes only what was asked.** Each run's diff is shown, and files outside the edited ones are flagged.
-5. **Nothing is lost.** Every agent run is preceded by a checkpoint of the whole working tree, and Undo restores it. Checkpoints never touch the user's branch, index or stash.
+4. **The agent changes only what was asked.** Show diff lists what changed since edits were sent, and files outside the edited ones are flagged.
+5. **Nothing is lost.** Sending edits to an agent is preceded by a checkpoint of the whole working tree, and Undo restores it. Checkpoints never touch the user's branch, index or stash.
 6. **No API keys.** Divina uses the agent CLIs the user already has installed and logged in.
 7. **No junk in the repo.** Divina's files live in the project's `.divina/` folder, which ignores itself in git. The user's config files are never edited.
 
@@ -25,7 +25,14 @@ Audience: developers. It started as the author's own test bed and is open source
 ### Start screen
 
 - **Open project folder:** type a path or use Browse…, then Open. Any folder can be opened: React (Vite, Next.js), Laravel, Django, Rails, plain PHP and so on.
-- **Create new project:** parent folder and name. This runs `pnpm dlx shadcn@latest init --template vite --defaults --yes --no-monorepo --name <name>`, which creates a Vite + React + TypeScript + Tailwind v4 + shadcn project. The new project still needs a run command (see Set up preview).
+- **Create new project:** parent folder, name and a **template**:
+  - **React + Vite** (default): `pnpm dlx shadcn@latest init --template vite --defaults --yes --no-monorepo --name <name>`, React + TypeScript + Tailwind v4 + shadcn/ui
+  - **Next.js:** the same shadcn init with the Next template
+  - **Vue + Vite:** `pnpm create vite@latest <name> --template vue-ts`, then `pnpm install`
+  - **SvelteKit:** `pnpm dlx sv create <name>`, minimal TypeScript
+  - **Leptos:** Divina writes a Leptos CSR + Thaw project served by Trunk (Cargo.toml, `src/main.rs`, `index.html`, `.gitignore`) and runs `cargo generate-lockfile`
+  - Templates whose tools are missing are disabled, with the missing piece shown (`pnpm`; for Leptos `cargo`, and to run it `trunk` and the `wasm32-unknown-unknown` target). Leptos can still be created when only `trunk` or the target is missing.
+  - Divina never starts the new project. It still needs a run command (see Set up preview); the placeholder suggests the right one, e.g. `trunk serve` on `http://127.0.0.1:8080` for Leptos.
 - **Recent:** the last 8 opened projects, kept in the app's local storage.
 - **Settings row:** at the bottom-left corner (see Settings).
 
@@ -36,7 +43,7 @@ Shown when a project has no saved run config. It can be reopened any time from *
 - **Run command** (required, multi-line): the user writes it. Divina runs it verbatim in the project folder through the login shell (`$SHELL -lc "<command>"`), so tools such as php, composer, python, rbenv, nvm and pnpm resolve as they do in the user's terminal.
   - Several lines run in order, like a shell script. A line that keeps running blocks the next one, so the user ends long-running lines with `&` and keeps the last one in the foreground.
   - If the script exits while its background jobs keep running, Divina treats that as a crash and restarts once, which can start duplicates. The dialog warns about this. Divina does not add `wait` or change the script.
-  - ⌘↵ saves. The textarea stops the event, so it doesn't also trigger Apply.
+  - ⌘↵ saves.
 - **Preview URL** (optional). When it's set, Divina waits until that address accepts connections (polling for up to 120 s). When it's empty, Divina uses the first local URL the command prints. It understands the output of Vite (`Local:`), Next (`Local:` / `url:`), Laravel (`Server running on [http://127.0.0.1:8000]`), the PHP built-in server, Django and Rails, and rewrites `0.0.0.0` to `127.0.0.1`. Set it when the command starts more than one server, for example Laravel plus Vite.
 - **Click-to-code source tagging** (checkbox, off by default, shown only for projects with a `react` dependency). See Source tagging.
 - Placeholder hints only, never run on their own:
@@ -55,7 +62,7 @@ Three resizable columns:
 
 - **Left:** a header with ← Projects and the project name, the **component library**, and the settings row at the bottom.
 - **Center:** the toolbar and **frame**, with the **dev server bar** below. The bar shows the status, URL and first line of the command, opens the log drawer of the last 500 lines, and has a Run command… button.
-- **Right:** tabs for **Properties** and **Agent**, then **Pending edits** with Apply ⌘↵ and Undo, then the diff of the last run.
+- **Right:** tabs for **Properties** and **Terminal**, then **Pending edits** with Send to agent, Show diff and Undo.
 
 #### Frame and viewport
 
@@ -77,7 +84,7 @@ Selecting, moving, resizing and text editing need source tagging (see Known limi
 - **Double-click text** to edit it in place, which creates a `text` edit.
 - **Drag a component from the library** into the frame. A drop indicator follows the pointer and a labelled placeholder is inserted, which creates an `insert` edit.
   - **On untagged pages** (any framework, Rust included), the edit has an empty `target.file` and a `dom` anchor instead: the element's CSS path, tag, its first text run (or the nearest sibling or heading text, up to 80 chars), and `meta` (`file:line:col`) when the framework exposes dev metadata (Svelte `__svelte_meta`; Vue component `__file`, line 0).
-  - **Locating the code:** at Apply, Divina lists up to 5 likely source locations: `meta` first, then a search for the text (`git grep`, exact then case-insensitive, honouring `.gitignore` and skipping `node_modules`, `target`, `dist`, `build`, `.divina` and lockfiles; a file walk outside git). Text under 3 characters isn't searched.
+  - **Locating the code:** when the brief is built, Divina lists up to 5 likely source locations: `meta` first, then a search for the text (`git grep`, exact then case-insensitive, honouring `.gitignore` and skipping `node_modules`, `target`, `dist`, `build`, `.divina` and lockfiles; a file walk outside git). Text under 3 characters isn't searched.
   - **The agent decides:** the prompt gives the selector, text and candidates, says the purple placeholder marks the drop, and asks the agent to screenshot first, implement, then screenshot again and fix the placement if it's wrong.
 - **Properties tab:**
   - shows the selected element's source location
@@ -85,20 +92,23 @@ Selecting, moving, resizing and text editing need source tagging (see Known limi
   - has selects for Padding, Padding X, Padding Y, Margin and Gap (0 to 16) and for Width and Height (auto, full, fit, 1/2, 32, 48, 64, 96)
   - badges show the scope each value applies to
   - a newer value for the same control, element and scope replaces the older one in the queue
-- **Every edit previews immediately** in the frame (optimistic DOM change). Previews are reverted when a run starts, and the real result arrives through the dev server's hot reload.
+- **Every edit previews immediately** in the frame (optimistic DOM change). Previews are reverted when the edits are sent to an agent, and the real result arrives through the dev server's hot reload.
 
-#### Agent
+#### Terminal tabs
 
-- **Agent picker:** lists the detected CLIs, and logged-out ones can't be picked.
-- **Chat:** the transcript shows agent text, tool calls and errors. Prompting works on every project, with or without tagging.
-- **Apply (⌘↵)** sends the chat text and all pending edits in one run:
+Agents run as their own interactive CLIs in Ghostty-style terminal tabs, beside the canvas. Divina has no chat of its own.
+
+- **Tabs:** Shell (`$SHELL -l`), Claude Code, Codex and opencode, each a real PTY in the project folder, rendered with `ghostty-web` (Ghostty's VT engine as WASM). The panel starts empty with a button per kind; nothing starts on its own. Agents that aren't installed or logged in are disabled with a hint.
+- **Agent tabs see the canvas:** Divina starts its MCP server and launches `claude --mcp-config <json>`, `codex --cd <root> -c mcp_servers.divina.*` or `opencode <root>` with `OPENCODE_CONFIG_CONTENT`. The user's own CLI login, settings and other MCP servers stay as they are.
+- **Shortcuts:** ⌘T new tab of the active kind (or Shell), ⌘W close tab, ⌘1–8 select a tab, ⌘9 the last tab, ⌘⇧[ and ⌘⇧] previous and next. Duplicate kinds are numbered ("Claude Code 2"). An exited process shows `[process exited (code)]` and the tab stays until closed. All tabs close when the project closes or the app quits.
+- **Send to agent** (needs an active agent tab):
   1. checkpoint the working tree
-  2. start the CLI
-  3. stream its output into the chat
-  4. when it finishes, show the diff since the checkpoint, flagging files outside the edited files
-- **Not a git repo:** the user is asked once whether to run `git init`. Checkpoints need a repo, and the run is cancelled if they decline.
-- **Cancel** kills the agent's process group. **Undo** restores the latest checkpoint from this app session and walks back one step at a time.
-- **One continuing session per agent per project,** resumed on later runs and stored in `.divina/session.json`, so "now nudge it" keeps its context.
+  2. build the brief for all pending edits (`agent_prompt`)
+  3. paste it into the active agent tab as a bracketed paste, followed by Return
+  4. revert the previews and clear the pending edits, then switch to the Terminal tab
+- **Or ask in the tab:** "apply my Divina edits" works in any agent tab, because the `get_pending_edits` MCP tool returns the edits plus the same brief.
+- **Show diff** lists changes since the last sent checkpoint, flagging files outside the edited ones. **Undo** restores the latest checkpoint from this app session and walks back one step at a time. Divina can't tell when an interactive agent is done, so both are buttons.
+- **Not a git repo:** the user is asked once whether to run `git init`. Checkpoints need a repo, and sending is cancelled if they decline.
 
 #### Component library
 
@@ -143,13 +153,13 @@ When the Click-to-code source tagging checkbox is on, Divina adds dev-only `NODE
 
 ## What the agent receives
 
-Each run passes:
-- the user's prompt
+The brief (pasted by Send to agent, and returned by `get_pending_edits`) contains:
 - the pending edits as JSON, with source refs, owner chain, viewport and scope
+- for untagged edits, the selector, text and candidate source locations; for catalog inserts, the library's install command and usage
 - these instructions: implement only the requested changes; keep the project's patterns; map scope `all`, `tablet-down` and `mobile-down` to unprefixed, `max-lg:` and `max-md:` classes; no absolute positioning; no unrelated rewrites; verify with the divina `screenshot_frame` tool at the requested viewport and correct any mismatch before finishing
 
 The agent also has the Divina MCP server, which runs locally over HTTP with a bearer token:
-- `get_pending_edits`
+- `get_pending_edits`: the edits plus the brief, so "apply my Divina edits" works in any agent tab
 - `screenshot_frame`: a native WKWebView snapshot of the frame at the current viewport, with an in-page capture as fallback
 - `get_dom_snapshot`: the DOM tree with source refs
 - `get_console_errors`
@@ -161,7 +171,8 @@ All of these are inside the project's `.divina/` folder, which ignores itself wi
 | File | Written when |
 | --- | --- |
 | `run.json` | the user saves the run setup |
-| `session.json` | after an agent run (resumable session ids) |
+| `preview.html`, `preview.tsx` | when the library is listed, Vite projects only (live thumbnails) |
+| `libraries.json` | the user adds a library for this project |
 | `devserver.pid` | while a dev server runs, so a leftover server from a crashed app can be cleaned up |
 | `vite.config.mjs`, `vite-preload.cjs`, `next-preload.cjs`, `pragma-loader.cjs`, `jsx-dev-runtime.mjs` | at dev server start, only with tagging on |
 
@@ -179,8 +190,10 @@ Checkpoints are git objects under `refs/divina/checkpoints/<n>`, not files.
 
 ## Known limits (honest list)
 
-- **Limited canvas editing without tagging.** Without source tagging (non-React projects, or tagging off), clicking in the preview selects nothing, because the overlay needs `data-divina-src`. Library drops still work through DOM anchors, and chat prompts still work.
+- **Limited canvas editing without tagging.** Without source tagging (non-React projects, or tagging off), clicking in the preview selects nothing, because the overlay needs `data-divina-src`. Library drops still work through DOM anchors, and agents in terminal tabs work as usual.
 - **Untagged drops are located by a guess.** The text search only finds text written literally in the source: not text built at runtime, i18n keys or icon-only elements. Repeated text gives several candidates. The agent picks and checks with screenshots, and can still pick wrong. Outside git the search reads every file, with no size limit.
+- **No "agent finished" signal.** Interactive agents don't report completion, so Show diff and Undo are manual. Divina-side sessions are gone; each CLI keeps its own history (resume with its own commands).
+- **Terminal tabs:** the terminal theme is set when a tab opens, so a light/dark switch only applies to new tabs. Shortcuts don't fire while focus is in the preview iframe. If WKWebView lets the app menu's Close Window win over ⌘W, the window closes instead of the tab (untested in the app; the fix is a custom menu).
 - **Catalog:** two bundled libraries so far (shadcn/ui, Thaw). Custom libraries have no thumbnails and can't be edited or deleted from the app (edit the JSON file). Thaw thumbnails were captured from Thaw's docs site.
 - **No owner chains on Next.js.** Tagging gives `file:line:col` only.
 - **Screenshot fallback:** the native screenshot exists only on macOS. Elsewhere the in-page capture is used, which can miss cross-origin styles.
