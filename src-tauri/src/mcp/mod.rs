@@ -189,7 +189,8 @@ fn rpc(
             {"name":"get_pending_edits","description":"Get the queued Divina canvas edits plus instructions for implementing them in the code.","inputSchema":{"type":"object","properties":{}}},
             {"name":"screenshot_frame","description":"Capture the preview at its current viewport as PNG.","inputSchema":{"type":"object","properties":{}}},
             {"name":"get_dom_snapshot","description":"Get the preview DOM tree with source references.","inputSchema":{"type":"object","properties":{}}},
-            {"name":"get_console_errors","description":"Get console errors from the preview.","inputSchema":{"type":"object","properties":{}}}
+            {"name":"get_console_errors","description":"Get console errors from the preview.","inputSchema":{"type":"object","properties":{}}},
+            {"name":"edits_applied","description":"Call when you've finished implementing the Divina edits, so Divina shows the user the diff to review.","inputSchema":{"type":"object","properties":{"summary":{"type":"string","description":"One line on what you changed."}}}}
         ]}),
         "tools/call" => {
             let params = &message["params"];
@@ -199,6 +200,7 @@ fn rpc(
                 "screenshot_frame",
                 "get_dom_snapshot",
                 "get_console_errors",
+                "edits_applied",
             ]
             .contains(&name)
             {
@@ -254,6 +256,13 @@ fn rpc(
                 json!({"content":[{"type":"image","data":data,"mimeType":"image/png"}],"isError":false})
             } else if name == "get_pending_edits" {
                 pending_edits_result(payload)
+            } else if name == "edits_applied" {
+                let text = if payload["diffShown"] == true {
+                    "Thanks. Divina is showing the user the diff to review."
+                } else {
+                    "Thanks. Nothing was sent from Divina, so there is no diff to show."
+                };
+                json!({"content":[{"type":"text","text":text}],"isError":false})
             } else {
                 json!({"content":[{"type":"text","text":payload.to_string()}],"structuredContent":payload,"isError":false})
             }
@@ -295,16 +304,22 @@ mod tests {
         let shared = Arc::new(Shared::default());
         let worker_shared = shared.clone();
         thread::spawn(move || {
-            for _ in 0..2 {
+            for _ in 0..3 {
                 let (stream, _) = listener.accept().unwrap();
                 let response_shared = worker_shared.clone();
-                serve(stream, "secret", &worker_shared, move |id, tool, _| {
-                    assert_eq!(tool, "get_pending_edits");
-                    let mut waiting = response_shared.waiting.lock().unwrap();
-                    waiting.insert(id, Some(json!({"root": "/nonexistent", "edits": [{"id": "e1", "kind": "style",
+                serve(stream, "secret", &worker_shared, move |id, tool, args| {
+                    let answer = if tool == "edits_applied" {
+                        assert_eq!(args["summary"], "Padded the hero");
+                        json!({"diffShown": true})
+                    } else {
+                        assert_eq!(tool, "get_pending_edits");
+                        json!({"root": "/nonexistent", "edits": [{"id": "e1", "kind": "style",
                         "target": {"file": "src/Hero.tsx", "line": 4, "col": 1, "owners": []},
                         "viewport": {"preset": "desktop", "width": 1280, "height": 800}, "scope": "all",
-                        "payload": {"classes": "p-4", "props": {}}}]})));
+                        "payload": {"classes": "p-4", "props": {}}}]})
+                    };
+                    let mut waiting = response_shared.waiting.lock().unwrap();
+                    waiting.insert(id, Some(answer));
                     response_shared.ready.notify_all();
                     Ok(())
                 })
@@ -322,11 +337,13 @@ mod tests {
         let listed: Value =
             serde_json::from_str(&call(json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})))
                 .unwrap();
-        assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 4);
+        assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 5);
         let called: Value = serde_json::from_str(&call(json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_pending_edits","arguments":{}}}))).unwrap();
         assert_eq!(called["result"]["structuredContent"]["edits"][0]["id"], "e1");
         let text = called["result"]["content"][0]["text"].as_str().unwrap();
         assert!(text.starts_with("Divina pending edits: implement these changes in the code."));
         assert!(text.contains("src/Hero.tsx"));
+        let done: Value = serde_json::from_str(&call(json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"edits_applied","arguments":{"summary":"Padded the hero"}}}))).unwrap();
+        assert!(done["result"]["content"][0]["text"].as_str().unwrap().contains("showing the user the diff"));
     }
 }
