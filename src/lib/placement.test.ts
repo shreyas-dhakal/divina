@@ -48,7 +48,8 @@ test("all after elements with a twin signature are considered new", () => {
 
 test("move passes and a missing moved element is reported", () => {
   const move = edit("move");
-  expect(placementProblem(move, page(), page(node("button", "Save")), 390)).toBe("");
+  // The moved element's text is its first visible run, which here sits in a child, not in its own text nodes.
+  expect(placementProblem(move, page(), page({ ...node("button", "", 10, 20, [node("span", "Save", 12, 22)]), firstText: "Save" }), 390)).toBe("");
   expect(placementProblem(move, page(), page(node("p", "Other")), 390)).toContain("no matching element");
 });
 

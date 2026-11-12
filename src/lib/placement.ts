@@ -41,7 +41,7 @@ export function placementProblem(edit: EditRecord, before: PageRecord | undefine
     });
   } else if (edit.kind === "move" && edit.payload?.moved) {
     const moved = edit.payload.moved;
-    candidates = entries.filter(({ node }) => node.tag === moved.tag && (node.text ?? "") === moved.text && (!moved.components || !node.components || JSON.stringify(moved.components) === JSON.stringify(node.components)));
+    candidates = entries.filter(({ node }) => node.tag === moved.tag && (node.firstText ?? "") === moved.text && (!moved.components || !node.components || JSON.stringify(moved.components) === JSON.stringify(node.components)));
   } else return "";
 
   if (!candidates.length) return `edit ${edit.id}: ${edit.kind === "insert" ? "no new element" : "no matching element"} was found`;

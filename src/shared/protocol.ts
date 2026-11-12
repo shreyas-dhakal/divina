@@ -139,6 +139,8 @@ export interface DomNode {
   contentRect?: Rect;
   components?: string[];
   text?: string;
+  /** The element's first visible text run, descendants included: the same text `ElementIdentity.text` holds, so a moved element can be found again. */
+  firstText?: string;
   classes?: string;
   children: DomNode[];
 }

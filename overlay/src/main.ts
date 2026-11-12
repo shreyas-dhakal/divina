@@ -432,6 +432,7 @@ export function snapshot(element: Element): DomNode {
   const node: DomNode = { tag: element.tagName.toLowerCase(), rect: rectOf(element), contentRect: contentRect(element), children: [...element.children].filter(usable).map(snapshot) };
   const identity = identify(element);
   if (identity.components) node.components = identity.components;
+  if (identity.text) node.firstText = identity.text;
   const ref = resolveSourceRef(element);
   if (ref) node.ref = ref;
   if (text) node.text = text;

@@ -215,6 +215,8 @@ pub struct DomNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub classes: Option<String>,
     #[serde(default)]
     pub children: Vec<DomNode>,
