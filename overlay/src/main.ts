@@ -91,8 +91,9 @@ function showSlot(slot: DropSlot | null) {
   Object.assign(indicator.style, { left: `${slot.guide.x}px`, top: `${slot.guide.y}px`, width: `${slot.guide.width || 3}px`, height: `${slot.guide.height || 3}px` });
   indicator.style.display = "block";
 }
-// Sized to its label, not the parent: a block div spans the whole row and misrepresents a Button.
-const placeholderStyle = "display:inline-block;width:fit-content;align-self:flex-start;border:1px dashed #7c3aed;border-radius:6px;background:#7c3aed12;color:#6d28d9;padding:4px 12px;font:12px/1.5 system-ui";
+// Sized to its label, not the full row, but on its own line in a block container (inline-block sat
+// beside an inline Button, where a real component wouldn't).
+const placeholderStyle = "display:block;width:fit-content;align-self:flex-start;border:1px dashed #7c3aed;border-radius:6px;background:#7c3aed12;color:#6d28d9;padding:4px 12px;font:12px/1.5 system-ui";
 function placeAt(element: Element, slot: DropSlot) {
   if (slot.position.startsWith("inside")) slot.container.insertBefore(element, slot.container.firstChild);
   else slot.anchor.parentNode?.insertBefore(element, slot.position === "before" ? slot.anchor : slot.anchor.nextSibling);
@@ -104,7 +105,13 @@ function hoverSlot(x: number, y: number): DropSlot | null {
   // is over the ghost stops it hopping back and forth. `usable` already keeps it out of slot geometry.
   const r = ghost?.element.getBoundingClientRect();
   if (ghost && r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return ghost.slot;
-  return findSlot(x, y);
+  // Measure the page without the ghost: it grows its container, so the same point would otherwise
+  // pick a different slot depending on where the ghost last was.
+  if (!ghost) return findSlot(x, y);
+  ghost.element.style.display = "none";
+  const slot = findSlot(x, y);
+  ghost.element.style.display = "";
+  return slot;
 }
 function showGhost(slot: DropSlot | null, align: CrossAlignment | null = null, component = "Drop here") {
   if (!slot) { ghost?.element.remove(); ghost = null; spacing.replaceChildren(); return; }
@@ -318,6 +325,8 @@ function showInsertHover(x: number, y: number, component?: string) {
   const align = slot ? alignmentFor(slot, x, y) : null;
   showGhost(slot, align, component);
   showSlot(slot);
+  // The ghost marks the spot; the slot line was measured before the ghost reflowed its siblings.
+  indicator.style.display = "none";
   showAlignment(slot, align);
 }
 async function renderScreenshot(requestId: string) {
