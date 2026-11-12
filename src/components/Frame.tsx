@@ -4,10 +4,22 @@ import { Delete02 } from "@/components/animate-ui/icons/hugeicons/delete-02";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { canvasAction, fitScale, PRESETS, stepZoom, toFrameCoords, zoomView, type CanvasAction, type View } from "@/lib/viewport";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { backgroundStyle, BACKGROUNDS, canvasAction, fitScale, PRESETS, stepZoom, toFrameCoords, zoomView, type Background, type CanvasAction, type View } from "@/lib/viewport";
 import type { LibraryComponent, OverlayToHost, Rect, Viewport } from "@/shared/protocol";
 
 export const DRAG_MIME = "application/x-divina-component";
+
+const BACKGROUND_KEY = "divina.canvasBackground";
+const BACKGROUND_ITEMS = BACKGROUNDS.map((b) => ({ value: b, label: b[0].toUpperCase() + b.slice(1) }));
+function loadBackground(): Background {
+  try {
+    const b = localStorage.getItem(BACKGROUND_KEY) as Background;
+    return BACKGROUNDS.includes(b) ? b : "plain";
+  } catch {
+    return "plain";
+  }
+}
 
 interface Props {
   url: string | null;
@@ -40,6 +52,7 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
   const [tool, setTool] = useState<"select" | "hand">("select");
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
+  const [background, setBackground] = useState(loadBackground);
   const panFrom = useRef<{ id: number; x: number; y: number } | null>(null);
 
   useEffect(() => {
@@ -151,6 +164,14 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
     const { x, y } = toFrameCoords(t.left, t.top, frameRef.current.getBoundingClientRect(), scale);
     onTrashZone({ x, y, width: t.width / scale, height: t.height / scale });
   }, [draggingOnCanvas, scale]);
+  function pickBackground(b: Background) {
+    setBackground(b);
+    try {
+      localStorage.setItem(BACKGROUND_KEY, b);
+    } catch {
+      /* storage unavailable: background resets next launch */
+    }
+  }
   const custom = (w: number, h: number) => setViewport({ preset: "custom", width: w || 1, height: h || 1 });
 
   return (
@@ -207,6 +228,16 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
             <Plus />
           </Button>
         </div>
+        <Select items={BACKGROUND_ITEMS} value={background} onValueChange={(v) => v && pickBackground(v)}>
+          <SelectTrigger size="sm" aria-label="Canvas background" title="Canvas background">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {BACKGROUND_ITEMS.map((b) => (
+              <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button size="icon-sm" variant="ghost" aria-label="Toggle right sidebar" aria-pressed={sidebars.right} title={`${sidebars.right ? "Hide" : "Show"} properties and terminal (⌘\\ for both)`} onClick={() => onToggleSidebar("right")}>
           {sidebars.right ? <PanelRightClose /> : <PanelRightOpen />}
         </Button>
@@ -239,6 +270,7 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
           }}
           onPointerUp={(e) => panFrom.current?.id === e.pointerId && endPan()}
           onPointerCancel={endPan}
+          style={backgroundStyle(background, view)}
         >
           {url ? (
             <div

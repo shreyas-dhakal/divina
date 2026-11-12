@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { canvasAction, clampZoom, fitScale, PRESETS, scopeFor, stepZoom, toFrameCoords, zoomView } from "./viewport";
+import { backgroundStyle, canvasAction, clampZoom, fitScale, PRESETS, scopeFor, stepZoom, toFrameCoords, zoomView } from "./viewport";
 
 test("viewport -> scope", () => {
   expect(PRESETS.map(scopeFor)).toEqual(["all", "tablet-down", "mobile-down"]);
@@ -48,4 +48,15 @@ test("diff files outside the edit list are flagged", async () => {
     files: ["src/Hero.tsx", "package.json"],
     flagged: ["package.json"],
   });
+});
+
+test("canvas background follows the camera", () => {
+  const view = { scale: 0.5, x: 10, y: -4 };
+  expect(backgroundStyle("plain", view)).toEqual({});
+  const grid = backgroundStyle("grid", view);
+  expect(grid.backgroundSize).toBe("12px 12px");
+  expect(grid.backgroundPosition).toBe("10px -4px");
+  expect(grid.backgroundImage?.split("linear-gradient")).toHaveLength(3);
+  expect(backgroundStyle("lines", view).backgroundImage).toContain("to bottom");
+  expect(backgroundStyle("dots", view).backgroundImage).toContain("radial-gradient");
 });

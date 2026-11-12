@@ -72,6 +72,7 @@ Three resizable columns:
     - **Pan:** two-finger scroll over the grey canvas, middle-drag on the grey canvas (over the page the page gets it), or hold Space (or pick the Hand tool, H) and drag, with grab and grabbing cursors. While panning, a cover over the frame keeps the page from taking the pointer. V returns to Select. Over the page itself, plain scrolling still scrolls the page.
     - **Keys inside the page:** the overlay forwards Space, ⌘+/−/0/1, ⇧0/1 and V/H (`canvas-key`, by `KeyboardEvent.code`) unless a text field or in-place text edit has focus. On the host they're ignored in text fields and the terminal.
     - While part of the frame is out of view, `screenshot_frame` uses the in-page capture.
+    - **Background:** the toolbar picker sets the canvas around the frame to Plain (the default), Dots, Grid or Lines (horizontal rules), like Freeform's board backgrounds. It's CSS gradients anchored to the frame's corner, so it pans and zooms with the frame. It's decoration only: the page, the overlay and the agent never see it. The choice is saved app-wide (`localStorage`).
   - **Focus on the canvas:** the left (library) and right (properties, terminal) sidebars collapse with the panel buttons at either end of the canvas toolbar, or by dragging their handle to the edge. ⌘\ hides both, or shows both when both are hidden (forwarded from the page too). Terminals keep running while hidden.
   - **Cursor:** in select mode the page shows one cursor for the current action, overriding its own (no pointer or text cursors, since clicks select): an arrow by default, grab over the selected element, grabbing while dragging it, resize while resizing, and text while editing text in place.
 - **Presets:** Desktop 1440×900, Tablet 768×1024, Mobile 390×844, or a custom W×H.
@@ -218,6 +219,7 @@ Checkpoints are git objects under `refs/divina/checkpoints/<n>`, not files.
 
 ## Known limits (honest list)
 
+- **Canvas background at low zoom:** the pattern's cell is a fixed 24 page px, so below about 25% it packs into a faint tint instead of stepping to a coarser grid as Figma does.
 - **Trash button placement:** it is pinned to the preview pane's corner, so when the frame fills both width and height it can overlap the frame's corner.
 - **Limited canvas editing without tagging.** Without source tagging (non-React projects, or tagging off), selection and edits go through DOM anchors, so the agent has to find the code itself, and a Shift-drag to snap an element into a slot does nothing (a snapped move needs a source anchor; free moves work). Component names come from React and Vue dev data only; Svelte and other frameworks show the tag.
 - **Untagged drops are located by a guess.** The text search only finds text written literally in the source: not text built at runtime, i18n keys or icon-only elements. Repeated text gives several candidates. The agent picks and checks with screenshots, and can still pick wrong. Outside git the search reads every file, with no size limit.

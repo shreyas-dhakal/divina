@@ -54,6 +54,7 @@ You can change all of this later from **Run command…** under the preview.
 ## 4. Edit visually
 
 - **Zoom and pan** like Figma: pinch or ⌘-scroll to zoom, ⌘+ / ⌘− to step, ⇧1 to fit, ⇧0 for 100%. Two-finger scroll on the grey canvas, hold Space and drag, or middle-drag on the grey canvas to pan. H picks the Hand tool and V goes back to Select (also in the toolbar).
+- **Background:** pick Plain, Dots, Grid or Lines for the canvas around the page from the toolbar. It's only decoration and never changes your page.
 - **Focus mode:** hide the side panels with the panel buttons at the ends of the canvas toolbar, or press ⌘\ to hide or show both.
 - **Size:** pick Desktop, Tablet, Mobile or a custom size in the toolbar. Edits at Desktop apply everywhere. Edits at Tablet or Mobile apply at that size and smaller.
 - **Click** an element to select it. **Drag** it to move it: it stays where you let go, like in Figma. Hold **Shift** while dragging to snap it into the page layout instead; the purple line shows where it will land. Your agent then turns the position into real layout code (spacing and alignment, never absolute positioning), so the final result can sit slightly differently.

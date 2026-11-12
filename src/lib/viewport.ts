@@ -52,3 +52,17 @@ export function canvasAction(code: string, meta: boolean, shift: boolean): Canva
   if (shift) return ({ Digit1: "fit", Digit0: "actual" } as const)[code as "Digit1"] ?? null;
   return ({ KeyH: "hand", KeyV: "select" } as const)[code as "KeyH"] ?? null;
 }
+
+export const BACKGROUNDS = ["plain", "dots", "grid", "lines"] as const;
+export type Background = (typeof BACKGROUNDS)[number];
+
+/** Decorative canvas pattern in CSS, anchored to the frame's corner so it pans and zooms with it. */
+export function backgroundStyle(bg: Background, view: View): { backgroundImage?: string; backgroundSize?: string; backgroundPosition?: string } {
+  if (bg === "plain") return {};
+  // ponytail: fixed 24px cell, so it packs into a tint below ~25%; add zoom-level steps like Figma if that bothers.
+  const s = 24 * view.scale;
+  const c = "color-mix(in oklab, var(--muted-foreground) 30%, transparent)";
+  const line = (dir: string) => `linear-gradient(${dir}, ${c} 1px, transparent 1px)`;
+  const backgroundImage = bg === "dots" ? `radial-gradient(circle at 1px 1px, ${c} 1px, transparent 1.5px)` : bg === "grid" ? `${line("to right")}, ${line("to bottom")}` : line("to bottom");
+  return { backgroundImage, backgroundSize: `${s}px ${s}px`, backgroundPosition: `${view.x}px ${view.y}px` };
+}
