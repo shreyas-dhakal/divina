@@ -329,12 +329,12 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
               sidebars={sidebars}
               onToggleSidebar={toggleSidebar}
               onTrashZone={(rect) => post({ type: "trash-zone", rect })}
-              onHover={({ x, y }) => post({ type: "insert-hover", x, y, ...(dragging && { component: dragging.name, ...views(dragging) }) })}
-              onDrop={(c, x, y) => {
+              onHover={({ x, y, free }) => post({ type: "insert-hover", x, y, ...(free && { free }), ...(dragging && { component: dragging.name, ...views(dragging) }) })}
+              onDrop={(c, x, y, free) => {
                 setDragging(null);
                 // Catalog cards carry `library`; project components don't, so their payload is unchanged.
                 const { library } = c as LibraryComponent & { library?: LibraryRef };
-                post({ type: "preview-insert", component: c.name, importFrom: c.importFrom, x, y, ...(library && { library }), ...(dragging && views(dragging)) });
+                post({ type: "preview-insert", component: c.name, importFrom: c.importFrom, x, y, ...(library && { library }), ...(dragging && views(dragging)), ...(free && { free }) });
               }}
             />
           </div>
@@ -395,6 +395,13 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
                 </Button>
               </div>
             ))}
+            {/* Said outright: the tooltip below only shows on hover, and a greyed-out Send looked broken. */}
+            {edits.length > 0 && !agentTab && (
+              <p className="text-muted-foreground">
+                Sending needs an agent.{" "}
+                <button className="underline" onClick={() => setPanel("terminal")}>Open Terminal</button>, start Claude Code, Codex or opencode there, and keep that tab selected.
+              </p>
+            )}
             <div className="flex gap-2">
               {/* The span carries the hint: a disabled button gets no pointer events. */}
               <span className="flex flex-1" title={agentTab ? undefined : "Open and select an agent tab in Terminal to send edits."}>

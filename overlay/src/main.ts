@@ -1,4 +1,4 @@
-import type { DomAnchor, DomNode, EditRecord, HostToOverlay, InsertPlace, LibraryRef, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
+import type { DomAnchor, DomNode, EditRecord, FreePlace, HostToOverlay, InsertPayload, InsertPlace, LibraryRef, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
 import { applyPreview, buildDomAnchor, componentName, getUserCodeTarget, resolveSourceRef } from "./overlay.js";
 import { measureGaps, spacingLabel } from "./guides.js";
 import { pickDropSlot, type DropSlot } from "./slots.js";
@@ -120,6 +120,14 @@ function targetAt(x: number, y: number): Element | null {
   return element ? getUserCodeTarget(element) ?? element : null;
 }
 function findSlot(x: number, y: number) { return pickDropSlot(x, y, usable, getUserCodeTarget, slotChild); }
+/** The container and nearest sibling for a free drop: past the end of the page's content, the nearest top-level element still takes it. */
+function freeSlot(x: number, y: number) {
+  const slot = findSlot(x, y);
+  if (slot) return slot;
+  const near = (r: DOMRect) => Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+  const root = [...document.body.children].filter(usable).map((el) => el.getBoundingClientRect()).filter((r) => r.width && r.height).sort((a, b) => near(a) - near(b))[0];
+  return root ? findSlot(Math.min(Math.max(x, root.left + 1), root.right - 1), Math.min(Math.max(y, root.top + 1), root.bottom - 1)) : null;
+}
 function showSlot(slot: DropSlot | null) {
   if (!slot) { indicator.style.display = "none"; containerHighlight.style.display = "none"; alignmentGuide.style.display = "none"; return; }
   const rect = slot.container.getBoundingClientRect();
@@ -170,7 +178,19 @@ function makeBox(component: string, live?: string, image?: string): HTMLElement 
     }, fallback)
     .then(() => {
       // It was placed and measured as a pill; the component or picture has its own size.
-      if (ghost?.element === box) ghost.zone ? placeInZone(box, ghost.slot.container, ghost.zone, "fixed") : showSpacing(box, ghost.slot);
+      if (ghost?.element === box) ghost.free ? float(box, ghost.free) : ghost.zone ? placeInZone(box, ghost.slot.container, ghost.zone, "fixed") : showSpacing(box, ghost.slot);
+      // Dropped before it finished rendering: it keeps its centre, and the edit gets its real size.
+      const at = pins.get(box);
+      const drop = drops.get(box);
+      if (at && drop?.payload.free) {
+        const now = box.getBoundingClientRect();
+        at.x -= (now.width - drop.payload.free.width) / 2;
+        at.y -= (now.height - drop.payload.free.height) / 2;
+        pin(box);
+        drop.payload.free = freeAt(box, at.container);
+        send({ type: "discard-edit", id: drop.id });
+        send({ type: "edit", record: drop });
+      }
       updateOutline(selected);
     });
   return box;
@@ -237,25 +257,55 @@ function placeAt(element: Element, slot: DropSlot) {
   }
   if (from !== element.parentElement) tidy(from);
 }
-/** A library-drag target: a slot between children, or a placement zone on the container's empty space. */
-type Hover = { slot: DropSlot; zone: InsertPlace | null };
-/** Live stand-in during a library drag, so siblings reflow where the drop will land. */
-let ghost: { element: HTMLElement; slot: DropSlot; zone: InsertPlace | null; component: string } | null = null;
-function hoverAt(x: number, y: number): Hover | null {
+/**
+ * A library-drag target. Free (the default): the pointer itself, with the slot only naming the
+ * container and the nearest sibling. Snapped: a slot between children, or a placement zone on the
+ * container's empty space.
+ */
+type Hover = { slot: DropSlot; zone: InsertPlace | null; free?: { x: number; y: number } };
+/** Live stand-in during a library drag: under the pointer, or (snapped) in the flow so siblings reflow. */
+let ghost: { element: HTMLElement; slot: DropSlot; zone: InsertPlace | null; free?: { x: number; y: number }; component: string } | null = null;
+function hoverAt(x: number, y: number, free = false): Hover | null {
+  const inFlow = ghost && !ghost.zone && !ghost.free;
   // Inserting the ghost shifts siblings under a still pointer; holding the slot while the pointer
   // is over the ghost stops it hopping back and forth. `usable` already keeps it out of slot geometry.
-  const r = ghost && !ghost.zone ? ghost.element.getBoundingClientRect() : null;
+  const r = inFlow && !free ? ghost!.element.getBoundingClientRect() : null;
   // (A slot whose anchor was a dissolved row is stale and measured again.)
   if (ghost && r && ghost.slot.anchor.isConnected && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return { slot: ghost.slot, zone: null };
   // Measure the page without the ghost: it grows its container, so the same point would otherwise
   // pick a different slot depending on where the ghost last was.
   const shown = ghost?.element.style.display;
-  if (ghost) ghost.element.style.display = "none";
-  const slot = findSlot(x, y);
+  if (ghost && inFlow) ghost.element.style.display = "none";
+  const slot = free ? freeSlot(x, y) : findSlot(x, y);
+  if (ghost && inFlow) ghost.element.style.display = shown!;
+  if (!slot) return null;
+  if (free) return { slot, zone: null, free: { x, y } };
   // A side-by-side row only exists in the preview, so nothing is placed in its free space.
-  const hover = slot && { slot, zone: slot.container.matches(ROW) ? null : zoneAt(contentRect(slot.container), [...slot.container.children].filter(slotChild).map(rectOf), x, y) };
-  if (ghost) ghost.element.style.display = shown!;
-  return hover;
+  return { slot, zone: slot.container.matches(ROW) ? null : zoneAt(contentRect(slot.container), [...slot.container.children].filter(slotChild).map(rectOf), x, y) };
+}
+/** Where `element` sits in `container`'s content box, for the brief and for pinning it there again. */
+function freeAt(element: Element, container: Element): FreePlace {
+  const r = element.getBoundingClientRect();
+  const box = contentRect(container);
+  return { x: Math.round(r.left - box.x), y: Math.round(r.top - box.y), width: Math.round(r.width), height: Math.round(r.height), containerWidth: Math.round(box.width), containerHeight: Math.round(box.height) };
+}
+/** Freely placed placeholders: out of the flow on the body, at an offset in their container's content box. */
+const pins = new WeakMap<Element, { container: Element; x: number; y: number }>();
+// ponytail: pinned in page coordinates, re-pinned on resize only; a reflow that moves the container
+// without a resize leaves it behind until the next one.
+function pin(element: HTMLElement) {
+  const at = pins.get(element);
+  if (!at) return;
+  const box = contentRect(at.container);
+  if (element.parentElement !== document.body) { const from = element.parentElement; document.body.append(element); tidy(from); }
+  Object.assign(element.style, { position: "absolute", left: `${box.x + at.x + scrollX}px`, top: `${box.y + at.y + scrollY}px`, margin: "0" });
+}
+/** Centres the floating ghost on the pointer. */
+function float(box: HTMLElement, at: { x: number; y: number }) {
+  if (box.parentElement !== document.body) { const from = box.parentElement; document.body.append(box); tidy(from); }
+  box.style.position = "fixed";
+  const size = box.getBoundingClientRect();
+  Object.assign(box.style, { left: `${at.x - size.width / 2}px`, top: `${at.y - size.height / 2}px`, margin: "0" });
 }
 /** Pins `element` at `zone` of the container's content box; out of the page's flow, so it is preview only. */
 function placeInZone(element: HTMLElement, container: Element, zone: InsertPlace, position: "fixed" | "absolute") {
@@ -277,8 +327,8 @@ function showGhost(hover: Hover | null, align: CrossAlignment | null = null, com
   showZones(hover?.slot.container ?? document.body, hover?.zone ?? null);
   if (ghost && (!hover || ghost.component !== component)) { discard(ghost.element); ghost = null; }
   if (!hover) { spacing.replaceChildren(); return; }
-  const { slot, zone } = hover;
-  const same = ghost && !ghost.zone && !zone && ghost.slot.container === slot.container && ghost.slot.anchor === slot.anchor && ghost.slot.position === slot.position;
+  const { slot, zone, free } = hover;
+  const same = ghost && !ghost.zone && !ghost.free && !zone && ghost.slot.container === slot.container && ghost.slot.anchor === slot.anchor && ghost.slot.position === slot.position;
   if (!ghost) {
     const element = makeBox(component, live, image);
     element.dataset.divinaUi = "true";
@@ -291,8 +341,14 @@ function showGhost(hover: Hover | null, align: CrossAlignment | null = null, com
   if (image && !view && box.textContent) showPicture(box, image);
   // A rendered component aligns as itself; the pill or picture stays small unless an alignment is snapped.
   box.style.alignSelf = align ? selfValue(align) : view === "live" ? "" : "flex-start";
+  if (free) {
+    Object.assign(ghost, { slot, zone: null, free });
+    float(box, free);
+    spacing.replaceChildren();
+    return;
+  }
   if (zone) {
-    Object.assign(ghost, { slot, zone });
+    Object.assign(ghost, { slot, zone, free: undefined });
     // On the body rather than the overlay root, so a rendered component inherits the page's text styles.
     document.body.append(box);
     placeInZone(box, slot.container, zone, "fixed");
@@ -303,8 +359,8 @@ function showGhost(hover: Hover | null, align: CrossAlignment | null = null, com
   // beside inline siblings, else on its own line.
   if (view !== "live") box.style.display = slot.axis === "row" && !/flex|grid/.test(getComputedStyle(slot.container).display) ? "inline-block" : "block";
   if (same) return;
-  if (ghost.zone) Object.assign(box.style, { position: "", left: "", top: "", margin: "" });
-  Object.assign(ghost, { slot, zone: null });
+  if (ghost.zone || ghost.free) Object.assign(box.style, { position: "", left: "", top: "", margin: "" });
+  Object.assign(ghost, { slot, zone: null, free: undefined });
   placeAt(box, slot);
   showSpacing(box, slot);
 }
@@ -416,14 +472,18 @@ function onPointerMove(event: PointerEvent) {
   if (drag) {
     if (dragState === "idle") {
       if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 4) return;
-      (event.target as Element).setPointerCapture?.(event.pointerId);
+      // Captured by the dragged element itself, so the click that ends the drag re-selects it and not
+      // whatever the pointer happened to cross first.
+      drag.element.setPointerCapture?.(event.pointerId);
       lift(drag.element);
     }
     if (follower) follower.clone.style.transform = `translate(${event.clientX - drag.x}px, ${event.clientY - drag.y}px)`;
     if (overTrash(event.clientX, event.clientY)) { setDragState("over-trash"); drag.slot = null; showSlot(null); return; }
     setDragState("moving");
-    const slot = findSlot(event.clientX, event.clientY);
+    // Free by default: the element lands where it is released. Shift snaps it into a layout slot.
+    const slot = event.shiftKey ? findSlot(event.clientX, event.clientY) : null;
     if (slot && slot.container !== drag.element && !drag.element.contains(slot.container)) { drag.slot = slot; showSlot(slot); }
+    else { drag.slot = null; showSlot(null); }
     return;
   }
   if (mode !== "select") return;
@@ -469,11 +529,13 @@ function onPointerUp(event: PointerEvent) {
     setDragState("idle");
     land();
     if (trashed) { selected = current.element; deleteSelected(); return; }
-    const finalSlot = findSlot(event.clientX, event.clientY);
+    const finalSlot = (event.shiftKey ? findSlot : freeSlot)(event.clientX, event.clientY);
     current.slot = finalSlot && finalSlot.container !== current.element && !current.element.contains(finalSlot.container) ? finalSlot : null;
     showSlot(null);
     const slot = current.slot;
-    if (!slot || !current.element.parentNode) return;
+    if (!current.element.parentNode) return;
+    if (!event.shiftKey) { if (current.element instanceof HTMLElement) moveFreely(current.element, slot, event.clientX - current.x, event.clientY - current.y); return; }
+    if (!slot) return;
     const target = through(slot.anchor, slot.position);
     const anchor = resolveSourceRef(target);
     const source = resolveSourceRef(current.element);
@@ -490,10 +552,55 @@ function onPointerUp(event: PointerEvent) {
     send({ type: "edit", record: record("move", source, { anchor, position: slot.position, ...(beside ? { beside } : {}) }) });
   }
 }
+/** Free moves so far per element: the offset shown, and the queued edit a further move replaces. */
+const shifts = new WeakMap<Element, { x: number; y: number; id: string }>();
+/**
+ * Leaves `element` where it was released, `dx`/`dy` from where it was picked up. `slot` (the drop
+ * point's container and nearest sibling) says where that is in the code. Nothing is reparented: a
+ * dropped placeholder is re-pinned, a page element is shifted with `translate`.
+ */
+function moveFreely(element: HTMLElement, slot: DropSlot | null, dx: number, dy: number) {
+  const container = slot?.container ?? pins.get(element)?.container ?? element.parentElement!;
+  const drop = drops.get(element);
+  if (drop) {
+    const r = element.getBoundingClientRect();
+    const box = contentRect(container);
+    pins.set(element, { container, x: r.left + dx - box.x, y: r.top + dy - box.y });
+    pin(element);
+    // Same id, so the host's queue keeps one insert for this placeholder.
+    const { component, importFrom, library } = drop.payload;
+    const next = { ...insertRecord({ component, importFrom, ...(library ? { library } : {}), free: freeAt(element, container) }, slot ?? null, container), id: drop.id };
+    drops.set(element, next);
+    send({ type: "discard-edit", id: drop.id });
+    send({ type: "edit", record: next });
+  } else {
+    const before = element.style.translate;
+    const was = shifts.get(element);
+    const total = { x: (was?.x ?? 0) + dx, y: (was?.y ?? 0) + dy };
+    element.style.translate = `${total.x}px ${total.y}px`;
+    const anchor = slot ? through(slot.anchor, slot.position) : element;
+    const move = edit("move", element, { anchor: targetOf(anchor).target, position: slot?.position ?? "after", free: freeAt(element, container) });
+    shifts.set(element, { ...total, id: move.id });
+    revert.push(() => { element.style.translate = before; shifts.delete(element); });
+    if (was) send({ type: "discard-edit", id: was.id });
+    send({ type: "edit", record: move });
+  }
+  selected = element;
+  updateOutline(element);
+}
+/** The insert edit for a component landing at `slot` (in `container` when there is no sibling to name). */
+function insertRecord(payload: Omit<InsertPayload, "anchor" | "position">, slot: DropSlot | null, container: Element, inside = !slot) {
+  const anchor = inside || !slot ? container : through(slot.anchor, slot.position);
+  // Next to a component that is itself still a pending drop: same code location, ordered against that edit.
+  const sibling = drops.get(anchor);
+  const { target, dom } = sibling ?? targetOf(anchor);
+  const full = { ...payload, anchor: target, position: inside || !slot ? "inside-end" as const : slot.position, ...(sibling ? { sibling: sibling.id } : {}) };
+  return { ...record("insert", target, full), ...(dom ? { dom } : {}) } as Extract<EditRecord, { kind: "insert" }>;
+}
 /** Host-driven drop of a library component at frame coords (pointer events never reach the iframe during a host drag). */
-function dropInsert(component: string, importFrom: string, x: number, y: number, library?: LibraryRef, live?: string, image?: string) {
-  const hover = hoverAt(x, y);
-  const align = hover && !hover.zone && !hover.slot.beside ? alignmentFor(hover.slot, x, y) : null;
+function dropInsert(component: string, importFrom: string, x: number, y: number, library?: LibraryRef, live?: string, image?: string, free?: boolean) {
+  const hover = hoverAt(x, y, free);
+  const align = hover && !hover.free && !hover.zone && !hover.slot.beside ? alignmentFor(hover.slot, x, y) : null;
   // The ghost goes to the drop point and stays there as the placeholder, so what was dragged is what lands.
   showGhost(hover, align, component, live, image);
   showSlot(null);
@@ -506,16 +613,14 @@ function dropInsert(component: string, importFrom: string, x: number, y: number,
   // ponytail: the zone placeholder is pinned in page coordinates, so it drifts if the layout reflows
   // before the agent runs; render it with real layout classes if that misleads.
   if (zone) placeInZone(box, slot.container, zone, "absolute");
+  const at = hover.free ? freeAt(box, slot.container) : null;
+  if (at) { pins.set(box, { container: slot.container, x: at.x, y: at.y }); pin(box); }
   // A zone drop goes at the end of the container; `place` tells the agent where it should render.
-  const anchor = zone ? slot.container : through(slot.anchor, slot.position);
-  // Next to a component that is itself still a pending drop: same code location, ordered against that edit.
-  const sibling = drops.get(anchor);
-  const { target, dom } = sibling ?? targetOf(anchor);
-  const extra = {
+  const insert = insertRecord({
+    component, importFrom,
     ...(align ? { align } : {}), ...(zone ? { place: zone } : {}), ...(library ? { library } : {}),
-    ...(!zone && sideBySide(slot) ? { beside: true } : {}), ...(sibling ? { sibling: sibling.id } : {}),
-  };
-  const insert = { ...record("insert", target, { component, importFrom, anchor: target, position: zone ? "inside-end" : slot.position, ...extra }), ...(dom ? { dom } : {}) } as Extract<EditRecord, { kind: "insert" }>;
+    ...(!zone && !at && sideBySide(slot) ? { beside: true } : {}), ...(at ? { free: at } : {}),
+  }, slot, slot.container, !!zone);
   delete box.dataset.divinaUi;
   box.style.pointerEvents = "";
   // The edit id lets deleting the placeholder drop its queued insert.
@@ -582,14 +687,15 @@ function onDoubleClick(event: MouseEvent) {
   };
   target.addEventListener("blur", finish);
 }
-function showInsertHover(x: number, y: number, component?: string, live?: string, image?: string) {
-  const hover = hoverAt(x, y);
-  const align = hover && !hover.zone && !hover.slot.beside ? alignmentFor(hover.slot, x, y) : null;
+function showInsertHover(x: number, y: number, component?: string, live?: string, image?: string, free?: boolean) {
+  const hover = hoverAt(x, y, free);
+  const align = hover && !hover.free && !hover.zone && !hover.slot.beside ? alignmentFor(hover.slot, x, y) : null;
   showGhost(hover, align, component, live, image);
   showSlot(hover?.slot ?? null);
   // The ghost marks the spot; the slot line was measured before the ghost reflowed its siblings.
   indicator.style.display = "none";
   if (hover?.zone) slotLabel.textContent = slotLabel.textContent!.replace(/ · .*/, ` · ${zoneName(hover.zone)}`);
+  if (hover?.free && ghost) { const at = freeAt(ghost.element, hover.slot.container); slotLabel.textContent = slotLabel.textContent!.replace(/ · .*/, ` · ${at.x}, ${at.y}`); }
   showAlignment(hover?.slot ?? null, align);
 }
 async function renderScreenshot(requestId: string) {
@@ -625,10 +731,10 @@ function receive(event: MessageEvent<HostToOverlay>) {
       else updateOutline(selected);
       break;
     case "insert-hover":
-      showInsertHover(message.x, message.y, message.component, message.live, message.image);
+      showInsertHover(message.x, message.y, message.component, message.live, message.image, message.free);
       break;
     case "preview-insert":
-      dropInsert(message.component, message.importFrom, message.x, message.y, message.library, message.live, message.image);
+      dropInsert(message.component, message.importFrom, message.x, message.y, message.library, message.live, message.image, message.free);
       break;
     case "preview-edit": {
       const { file, line, col } = message.record.target;
@@ -687,7 +793,10 @@ for (const type of ["keydown", "keyup"] as const) document.addEventListener(type
   if (event.code === "Space" || meta) event.preventDefault();
   if (!event.repeat) send({ type: "canvas-key", code: event.code, down: type === "keydown", meta, shift: event.shiftKey });
 });
-window.addEventListener("resize", () => updateOutline(selected));
+window.addEventListener("resize", () => {
+  for (const placed of document.querySelectorAll<HTMLElement>("body > [data-divina-placeholder]")) pin(placed);
+  updateOutline(selected);
+});
 const originalError = console.error.bind(console);
 console.error = (...args: unknown[]) => {
   originalError(...args);

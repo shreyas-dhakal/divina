@@ -21,9 +21,10 @@ interface Props {
   canvasDrag: "idle" | "moving" | "over-trash";
   /** Trash button rect in frame coords, sent when a canvas drag starts. */
   onTrashZone: (rect: Rect) => void;
-  onDrop: (c: LibraryComponent, x: number, y: number) => void;
+  /** `free`: the component lands where it is released; false (Shift held) snaps it into the layout. */
+  onDrop: (c: LibraryComponent, x: number, y: number, free: boolean) => void;
   /** Drag position in frame coords; off-frame (-1,-1) when the drag leaves. */
-  onHover: (p: { x: number; y: number }) => void;
+  onHover: (p: { x: number; y: number; free?: boolean }) => void;
   sidebars: { left: boolean; right: boolean };
   /** "both" hides both if either is open, else shows both (⌘\). */
   onToggleSidebar: (side: "left" | "right" | "both") => void;
@@ -263,7 +264,7 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
                   onDragOver={(e) => {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = "copy";
-                    onHover(toFrameCoords(e.clientX, e.clientY, frameRef.current!.getBoundingClientRect(), scale));
+                    onHover({ ...toFrameCoords(e.clientX, e.clientY, frameRef.current!.getBoundingClientRect(), scale), free: !e.shiftKey });
                   }}
                   onDragLeave={() => onHover({ x: -1, y: -1 })}
                   onDrop={(e) => {
@@ -271,7 +272,7 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
                     const data = e.dataTransfer.getData(DRAG_MIME);
                     if (!data) return;
                     const { x, y } = toFrameCoords(e.clientX, e.clientY, frameRef.current!.getBoundingClientRect(), scale);
-                    onDrop(JSON.parse(data), x, y);
+                    onDrop(JSON.parse(data), x, y, !e.shiftKey);
                   }}
                 />
               )}

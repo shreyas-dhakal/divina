@@ -32,6 +32,12 @@ export type InsertAlignment = "start" | "center" | "end";
 /** Cell of a 3×3 grid over a container's free space: x is left/centre/right, y is top/middle/bottom. */
 export interface InsertPlace { x: InsertAlignment; y: InsertAlignment }
 
+/**
+ * Free placement: where the user put the element, as its box inside the content box of the container
+ * it was dropped on (px, at the edit's viewport). The agent reproduces it with layout, not positioning.
+ */
+export interface FreePlace { x: number; y: number; width: number; height: number; containerWidth: number; containerHeight: number }
+
 export interface InsertPayload {
   component: string;
   importFrom: string;
@@ -46,6 +52,8 @@ export interface InsertPayload {
   beside?: boolean;
   /** Id of the pending insert whose component this one was dropped next to; `anchor` is then that edit's. */
   sibling?: string;
+  /** Set for a free drop: `anchor`/`position` then only name the nearest sibling, for source order. */
+  free?: FreePlace;
 }
 
 /** Catalog library a dropped component belongs to. */
@@ -77,6 +85,8 @@ export interface MovePayload {
   position: Position;
   /** As InsertPayload.beside. */
   beside?: boolean;
+  /** As InsertPayload.free. */
+  free?: FreePlace;
 }
 
 export interface StylePayload {
@@ -152,11 +162,12 @@ export type HostToOverlay =
   /**
    * x/y: drop point in frame (unscaled viewport) coordinates. `live`: the project module the overlay
    * can render the real component from (a previewable component's `importFrom`). `image`: a picture of
-   * the component (data URL) shown when it can't render. With neither, a labelled pill.
+   * the component (data URL) shown when it can't render. With neither, a labelled pill. `free`: the
+   * component lands exactly at x/y (the default in the app); without it, it snaps to a layout slot (Shift).
    */
-  | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number; library?: LibraryRef; live?: string; image?: string }
-  /** Host drag in progress over the frame: show the component at the slot under x/y (frame coords). */
-  | { type: "insert-hover"; x: number; y: number; component?: string; live?: string; image?: string }
+  | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number; library?: LibraryRef; live?: string; image?: string; free?: boolean }
+  /** Host drag in progress over the frame: show the component under x/y (frame coords), or at its slot. */
+  | { type: "insert-hover"; x: number; y: number; component?: string; live?: string; image?: string; free?: boolean }
   /** Optimistic preview of a Properties edit on the element at record.target; reverted by clear-optimistic. */
   | { type: "preview-edit"; record: EditRecord }
   | { type: "clear-optimistic" }

@@ -74,6 +74,17 @@ pub struct InsertPlace {
     pub y: InsertAlignment,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FreePlace {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub container_width: f64,
+    pub container_height: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InsertPayload {
@@ -91,6 +102,8 @@ pub struct InsertPayload {
     pub beside: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sibling: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub free: Option<FreePlace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -119,6 +132,8 @@ pub struct MovePayload {
     pub position: Position,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub beside: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub free: Option<FreePlace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -245,6 +260,8 @@ pub enum HostToOverlay {
         live: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        free: Option<bool>,
     },
     InsertHover {
         x: f64,
@@ -255,6 +272,8 @@ pub enum HostToOverlay {
         live: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        free: Option<bool>,
     },
     PreviewEdit { record: EditRecord },
     ClearOptimistic,
@@ -542,7 +561,10 @@ mod tests {
         roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0}));
         roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0, "component": "Button"}));
         roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0, "component": "Button", "live": "@/components/ui/button"}));
-        roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Button", "importFrom": "x", "x": 1.0, "y": 2.0, "live": "x", "image": "data:image/png;base64,"}));
+        roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Button", "importFrom": "x", "x": 1.0, "y": 2.0, "live": "x", "image": "data:image/png;base64,", "free": true}));
+        roundtrip::<EditRecord>(json!({"id": "e10", "kind": "move", "target": src, "viewport": vp, "scope": "all",
+            "payload": {"anchor": src, "position": "after",
+            "free": {"x": 120.0, "y": 48.0, "width": 76.0, "height": 36.0, "containerWidth": 800.0, "containerHeight": 300.0}}}));
         roundtrip::<EditRecord>(json!({"id": "e8", "kind": "insert", "target": src, "viewport": vp, "scope": "all",
             "payload": {"component": "Button", "importFrom": "x", "anchor": src, "position": "after", "beside": true, "sibling": "e5"}}));
         roundtrip::<EditRecord>(json!({"id": "e9", "kind": "move", "target": src, "viewport": vp, "scope": "all",

@@ -423,3 +423,79 @@ describe("drop previews", () => {
     expect(slot?.beside).toBeUndefined();
   });
 });
+
+describe("free placement", () => {
+  const box = (left: number, top: number, width: number, height: number) => ({ x: left, y: top, width, height, left, top, right: left + width, bottom: top + height, toJSON() {} });
+  const post = (data: object) => window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data }));
+  type Sent = { type: string; id?: string; record?: { id: string; kind: string; target: { file: string }; payload: { position: string; free?: object; beside?: boolean } } };
+
+  it("drops a component where it is released and lets it be dragged on, keeping one edit", async () => {
+    const sent: Sent[] = [];
+    window.parent.postMessage = ((message: never) => sent.push(message)) as typeof window.parent.postMessage;
+    await import("./main.js");
+    post({ type: "set-mode", mode: "select" });
+    document.body.innerHTML = `<main><section style="display:flex;flex-direction:column"><h1 data-divina-src="src/App.tsx:3:5">Title</h1><p>Text</p></section></main>`;
+    const section = document.querySelector("section")!;
+    const [h1, p] = [...section.children];
+    section.getBoundingClientRect = () => box(10, 10, 400, 300);
+    h1!.getBoundingClientRect = () => box(10, 10, 400, 40);
+    p!.getBoundingClientRect = () => box(10, 60, 400, 40);
+    document.elementFromPoint = () => section;
+    // The right edge of the heading would be a side drop when snapping; free, nothing in the page moves.
+    post({ type: "insert-hover", x: 405, y: 30, component: "Button", free: true });
+    expect([...section.children]).toEqual([h1, p]);
+    const ghost = document.querySelector<HTMLElement>("body > [data-divina-ui]:not(:first-child)") ?? [...document.body.children].find((el) => el.textContent === "Button") as HTMLElement;
+    ghost.getBoundingClientRect = () => box(200, 150, 60, 30);
+    post({ type: "preview-insert", component: "Button", importFrom: "@/button", x: 230, y: 165, free: true });
+    const placed = document.querySelector<HTMLElement>("body > [data-divina-placeholder]")!;
+    expect(placed).toBe(ghost);
+    expect([...section.children]).toEqual([h1, p]);
+    const first = sent.filter((m) => m.type === "edit").pop()!.record!;
+    expect(first.payload.free).toEqual({ x: 190, y: 140, width: 60, height: 30, containerWidth: 400, containerHeight: 300 });
+    expect(first.payload.beside).toBeUndefined();
+    expect([placed.style.position, placed.style.left, placed.style.top]).toEqual(["absolute", "200px", "150px"]);
+
+    placed.click();
+    const at = (type: string, x: number, y: number) => placed.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y }));
+    at("pointerdown", 210, 160);
+    at("pointermove", 240, 200);
+    at("pointerup", 240, 200);
+    expect([placed.style.left, placed.style.top]).toEqual(["230px", "190px"]);
+    expect(sent.slice(-2).map((m) => [m.type, m.id ?? m.record?.id])).toEqual([["discard-edit", first.id], ["edit", first.id]]);
+    post({ type: "clear-optimistic" });
+    expect(placed.isConnected).toBe(false);
+  });
+
+  it("shifts a page element by the drag instead of reordering it, and Shift snaps it into a slot", async () => {
+    const sent: Sent[] = [];
+    window.parent.postMessage = ((message: never) => sent.push(message)) as typeof window.parent.postMessage;
+    await import("./main.js");
+    post({ type: "set-mode", mode: "select" });
+    document.body.innerHTML = `<main><section data-divina-src="src/App.tsx:2:3" style="display:flex;flex-direction:column"><h1 data-divina-src="src/App.tsx:3:5">Title</h1><p data-divina-src="src/App.tsx:4:5">Text</p></section></main>`;
+    const section = document.querySelector("section")!;
+    const [h1, p] = [...section.children] as HTMLElement[];
+    section.getBoundingClientRect = () => box(0, 0, 400, 300);
+    h1!.getBoundingClientRect = () => box(0, 0, 400, 40);
+    p!.getBoundingClientRect = () => box(0, 60, 400, 40);
+    document.elementFromPoint = () => section;
+    p!.click();
+    const at = (type: string, x: number, y: number, shiftKey = false) => p!.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y, shiftKey }));
+    at("pointerdown", 20, 70);
+    at("pointermove", 120, 170);
+    at("pointerup", 120, 170);
+    expect(p!.style.translate).toBe("100px 100px");
+    expect([...section.children]).toEqual([h1, p]);
+    const move = sent.filter((m) => m.record?.kind === "move").pop()!.record!;
+    expect(move).toMatchObject({ target: { file: "src/App.tsx" }, payload: { free: { containerWidth: 400, containerHeight: 300 } } });
+    post({ type: "clear-optimistic" });
+    expect(p!.style.translate).toBe("");
+
+    p!.click();
+    at("pointerdown", 20, 70);
+    at("pointermove", 20, 10, true);
+    at("pointerup", 20, 5, true);
+    expect([...section.children]).toEqual([p, h1]);
+    expect(sent.filter((m) => m.record?.kind === "move").pop()!.record!.payload).toMatchObject({ position: "before" });
+    expect(sent.filter((m) => m.record?.kind === "move").pop()!.record!.payload.free).toBeUndefined();
+  });
+});

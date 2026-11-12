@@ -115,11 +115,22 @@ pub(crate) fn build_prompt(root: &Path, edits: &[EditRecord]) -> String {
         }
     }
     for edit in edits {
-        let (beside, position) = match &edit.edit {
-            EditKind::Insert(p) => (p.beside, p.position),
-            EditKind::Move(p) => (p.beside, p.position),
+        let (beside, position, free) = match &edit.edit {
+            EditKind::Insert(p) => (p.beside, p.position, p.free),
+            EditKind::Move(p) => (p.beside, p.position, p.free),
             _ => continue,
         };
+        if let Some(f) = free {
+            let scope = match edit.scope {
+                crate::protocol::Scope::All => "",
+                crate::protocol::Scope::TabletDown => " Scope the classes with `max-lg:`.",
+                crate::protocol::Scope::MobileDown => " Scope the classes with `max-md:`.",
+            };
+            out.push_str(&format!(
+                "\n\nEdit {}: the user placed this freely. Its box ({}×{}px) sits {}px from the left and {}px from the top of the content box ({}×{}px) of the container it was dropped on, at a {}px wide viewport; its anchor and position only name the nearest sibling there. Make it render at that spot using layout only: its place among the siblings, margins, padding, `gap`, and flex or grid alignment (`justify-*`, `items-*`, `self-*`, `m*-auto`), with values on the Tailwind scale. Never use absolute or fixed positioning or transforms.{scope} Then screenshot and compare with these numbers.",
+                edit.id, f.width, f.height, f.x, f.y, f.container_width, f.container_height, edit.viewport.width
+            ));
+        }
         if beside == Some(true) {
             let side = if position == crate::protocol::Position::Before { "left" } else { "right" };
             out.push_str(&format!(
@@ -239,6 +250,18 @@ mod tests {
             "payload": {"component": "Button", "importFrom": "@/button", "anchor": src,
                 "position": "after", "align": "center"}}]));
         assert!(build_prompt(Path::new("/nonexistent"), &edits).contains("align the inserted component with the Tailwind class `max-md:self-center`"));
+    }
+
+    #[test]
+    fn free_placement_gives_the_agent_the_position() {
+        let src = json!({"file": "src/App.tsx", "line": 4, "col": 2, "owners": []});
+        let edits = records(json!([{"id": "f1", "kind": "insert", "target": src,
+            "viewport": {"preset": "mobile", "width": 390, "height": 844}, "scope": "mobile-down",
+            "payload": {"component": "Button", "importFrom": "@/button", "anchor": src, "position": "after",
+                "free": {"x": 120, "y": 48, "width": 76, "height": 36, "containerWidth": 358, "containerHeight": 300}}}]));
+        let p = build_prompt(Path::new("/nonexistent"), &edits);
+        assert!(p.contains("Edit f1: the user placed this freely. Its box (76×36px) sits 120px from the left and 48px from the top of the content box (358×300px)"), "{p}");
+        assert!(p.contains("Scope the classes with `max-md:`."), "{p}");
     }
 
     #[test]
