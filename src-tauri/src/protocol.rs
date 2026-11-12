@@ -243,6 +243,8 @@ pub enum HostToOverlay {
         library: Option<LibraryRef>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         live: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<String>,
     },
     InsertHover {
         x: f64,
@@ -251,6 +253,8 @@ pub enum HostToOverlay {
         component: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         live: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<String>,
     },
     PreviewEdit { record: EditRecord },
     ClearOptimistic,
@@ -538,7 +542,7 @@ mod tests {
         roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0}));
         roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0, "component": "Button"}));
         roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0, "component": "Button", "live": "@/components/ui/button"}));
-        roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Button", "importFrom": "x", "x": 1.0, "y": 2.0, "live": "x"}));
+        roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Button", "importFrom": "x", "x": 1.0, "y": 2.0, "live": "x", "image": "data:image/png;base64,"}));
         roundtrip::<EditRecord>(json!({"id": "e8", "kind": "insert", "target": src, "viewport": vp, "scope": "all",
             "payload": {"component": "Button", "importFrom": "x", "anchor": src, "position": "after", "beside": true, "sibling": "e5"}}));
         roundtrip::<EditRecord>(json!({"id": "e9", "kind": "move", "target": src, "viewport": vp, "scope": "all",

@@ -151,11 +151,12 @@ export type HostToOverlay =
   | { type: "set-mode"; mode: OverlayMode }
   /**
    * x/y: drop point in frame (unscaled viewport) coordinates. `live`: the project module the overlay
-   * can render the real component from (a previewable component's `importFrom`); without it, a labelled pill.
+   * can render the real component from (a previewable component's `importFrom`). `image`: a picture of
+   * the component (data URL) shown when it can't render. With neither, a labelled pill.
    */
-  | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number; library?: LibraryRef; live?: string }
+  | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number; library?: LibraryRef; live?: string; image?: string }
   /** Host drag in progress over the frame: show the component at the slot under x/y (frame coords). */
-  | { type: "insert-hover"; x: number; y: number; component?: string; live?: string }
+  | { type: "insert-hover"; x: number; y: number; component?: string; live?: string; image?: string }
   /** Optimistic preview of a Properties edit on the element at record.target; reverted by clear-optimistic. */
   | { type: "preview-edit"; record: EditRecord }
   | { type: "clear-optimistic" }

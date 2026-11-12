@@ -3,6 +3,8 @@ import type { Position, Rect } from "../../src/shared/protocol.ts";
 const LEAF_TAGS = /^(IMG|INPUT|TEXTAREA|SELECT|VIDEO|AUDIO|CANVAS|IFRAME|HR|BR|PROGRESS|METER)$/;
 /** How far (px) into a child's left or right edge a pointer counts as a side drop. */
 const SIDE_BAND = 24;
+/** Moving these in the DOM reloads or pauses them, so they take no side drops (whose preview wraps the anchor). */
+const MEDIA = "iframe, video, audio, object, embed";
 
 export type SlotAxis = "row" | "column";
 /** `beside`: a drop on a stacked child's left or right side, asking to share one row with `anchor`. */
@@ -53,7 +55,8 @@ export function pickDropSlot(x: number, y: number, usable: (element: Element | n
   // Stacked children take side drops: the middle of a child's left or right edge (its top and
   // bottom quarters stay before/after) puts the drop on the same row.
   const band = Math.min(SIDE_BAND, r.width / 4);
-  const side = axis === "column" && y > r.top + r.height / 4 && y < r.bottom - r.height / 4 ? (x < r.left + band ? "before" : x > r.right - band ? "after" : null) : null;
+  const wrappable = !children[nearest]!.matches(MEDIA) && !children[nearest]!.querySelector(MEDIA);
+  const side = axis === "column" && wrappable && y > r.top + r.height / 4 && y < r.bottom - r.height / 4 ? (x < r.left + band ? "before" : x > r.right - band ? "after" : null) : null;
   if (side) {
     const guide = { x: side === "after" ? r.right : r.left, y: r.top, width: 0, height: r.height };
     return { container, index: nearest + (side === "after" ? 1 : 0), total, axis, direction, guide, position: side, anchor: children[nearest]!, beside: true };

@@ -51,6 +51,9 @@ function describe(e: EditRecord) {
   return `${e.kind} ${where}${detail ? ` → ${detail}` : ""}`;
 }
 
+/** How the frame should show a dragged component: rendered live, as a picture, or (neither) a pill. */
+const views = ({ live, image }: LibraryDrag) => ({ ...(live && { live }), ...(image && { image }) });
+
 export function Workspace({ project, onClose }: { project: ProjectInfo; onClose: () => void }) {
   const { root } = project;
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -326,12 +329,12 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
               sidebars={sidebars}
               onToggleSidebar={toggleSidebar}
               onTrashZone={(rect) => post({ type: "trash-zone", rect })}
-              onHover={({ x, y }) => post({ type: "insert-hover", x, y, ...(dragging && { component: dragging.name, ...(dragging.live && { live: dragging.live }) }) })}
+              onHover={({ x, y }) => post({ type: "insert-hover", x, y, ...(dragging && { component: dragging.name, ...views(dragging) }) })}
               onDrop={(c, x, y) => {
                 setDragging(null);
                 // Catalog cards carry `library`; project components don't, so their payload is unchanged.
                 const { library } = c as LibraryComponent & { library?: LibraryRef };
-                post({ type: "preview-insert", component: c.name, importFrom: c.importFrom, x, y, ...(library && { library }), ...(dragging?.live && { live: dragging.live }) });
+                post({ type: "preview-insert", component: c.name, importFrom: c.importFrom, x, y, ...(library && { library }), ...(dragging && views(dragging)) });
               }}
             />
           </div>

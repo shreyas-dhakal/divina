@@ -371,3 +371,55 @@ describe("side by side", () => {
     expect([...section.children]).toEqual([h1, p]);
   });
 });
+
+describe("drop previews", () => {
+  const box = (left: number, top: number, width: number, height: number) => ({ x: left, y: top, width, height, left, top, right: left + width, bottom: top + height, toJSON() {} });
+  const post = (data: object) => window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data }));
+  const stack = () => {
+    document.body.innerHTML = `<main><section style="display:flex;flex-direction:column"><h1>Title</h1><p>Text</p></section></main>`;
+    const section = document.querySelector("section")!;
+    const [h1, p] = [...section.children];
+    section.getBoundingClientRect = () => box(0, 0, 200, 100);
+    h1!.getBoundingClientRect = () => box(0, 0, 200, 40);
+    p!.getBoundingClientRect = () => box(0, 60, 200, 40);
+    document.elementFromPoint = () => h1!;
+    return { section, h1: h1!, p: p! };
+  };
+
+  it("shows a picture of the component instead of the pill when the host sends one", async () => {
+    window.parent.postMessage = (() => {}) as typeof window.parent.postMessage;
+    await import("./main.js");
+    stack();
+    post({ type: "preview-insert", component: "Card", importFrom: "@/card", x: 100, y: 38, image: "data:image/png;base64,AAAA" });
+    const placeholder = document.querySelector<HTMLElement>("[data-divina-placeholder]")!;
+    expect(placeholder.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    expect([placeholder.textContent, placeholder.style.border]).toEqual(["", ""]);
+    post({ type: "clear-optimistic" });
+  });
+
+  it("lets the framework remove or insert next to an anchor that sits in a side-by-side row", async () => {
+    window.parent.postMessage = (() => {}) as typeof window.parent.postMessage;
+    await import("./main.js");
+    const { section, h1 } = stack();
+    post({ type: "preview-insert", component: "Button", importFrom: "@/button", x: 195, y: 20 });
+    expect(h1.parentElement!.matches("[data-divina-row]")).toBe(true);
+    // React inserts and removes through the parent it rendered into.
+    const added = section.insertBefore(document.createElement("h2"), h1);
+    expect(section.firstElementChild).toBe(added);
+    section.removeChild(h1);
+    expect([...section.children].map((el) => el.tagName)).toEqual(["H2", "DIV", "P"]);
+    expect(section.children[1]!.matches("[data-divina-placeholder]")).toBe(true);
+    expect(Object.keys(section)).not.toContain("removeChild");
+  });
+
+  it("takes no side drop on media, which reloads when moved", () => {
+    document.body.innerHTML = `<main><section style="display:flex;flex-direction:column"><video></video><p>Text</p></section></main>`;
+    const video = document.querySelector("video")!;
+    video.getBoundingClientRect = () => box(0, 0, 200, 40);
+    document.querySelector("p")!.getBoundingClientRect = () => box(0, 60, 200, 40);
+    document.elementFromPoint = () => video;
+    const slot = pickDropSlot(195, 20, (el) => !!el && el !== document.body && el !== document.documentElement, (el) => el);
+    expect(slot).toMatchObject({ position: "after", anchor: video });
+    expect(slot?.beside).toBeUndefined();
+  });
+});

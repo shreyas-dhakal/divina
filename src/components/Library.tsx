@@ -24,8 +24,44 @@ function stackLabel(s: Stack | null) {
 // ponytail: first N in list order; render thumbnails as they scroll into view if users miss them.
 const MAX_THUMBS = 60;
 
-/** What is being dragged: `live` is the project module the frame can render the real component from. */
-export type LibraryDrag = { name: string; live?: string };
+/**
+ * What is being dragged: `live` is the project module the frame can render the real component from,
+ * `image` a picture of it for when it can't.
+ */
+export type LibraryDrag = { name: string; live?: string; image?: string };
+
+/** Cropped catalog thumbnails by URL, as data URLs the page in the frame can show. */
+const pictures = new Map<string, string>();
+/**
+ * Catalog thumbnails are a fixed frame around the component. Cropped to the component, the picture
+ * stands in for it on the canvas. Called on pointer down, so it is ready by the time a drag starts.
+ */
+function picture(src: string | undefined) {
+  if (!src || pictures.has(src)) return;
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement("canvas");
+    const [w, h] = [(canvas.width = img.naturalWidth), (canvas.height = img.naturalHeight)];
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(img, 0, 0);
+    const { data } = ctx.getImageData(0, 0, w, h);
+    // The corner pixel is the backdrop; lossy compression leaves it slightly uneven.
+    const differs = (i: number) => Math.abs(data[i] - data[0]) + Math.abs(data[i + 1] - data[1]) + Math.abs(data[i + 2] - data[2]) > 24;
+    let [left, top, right, bottom] = [w, h, -1, -1];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (!differs((y * w + x) * 4)) continue;
+      left = Math.min(left, x); right = Math.max(right, x);
+      top = Math.min(top, y); bottom = Math.max(bottom, y);
+    }
+    const out = document.createElement("canvas");
+    [out.width, out.height] = [right - left + 1, bottom - top + 1];
+    // Thumbnails captured from a docs page keep most of the frame: not a clean cut-out, so no picture.
+    if (right < 0 || out.width * out.height > w * h * 0.4) return;
+    out.getContext("2d")!.drawImage(canvas, -left, -top);
+    pictures.set(src, out.toDataURL("image/png"));
+  };
+  img.src = src;
+}
 
 /** `previewUrl` is the proxied dev server; Vite projects get live thumbnails from it. */
 export function Library({ root, previewUrl, onDragging }: { root: string; previewUrl: string | null; onDragging: (drag: LibraryDrag | null) => void }) {
@@ -78,6 +114,8 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
   /** Thumbnail iframes rendered so far in this pass; see MAX_THUMBS. */
   let thumbs = 0;
   const lib = catalog.find((l) => l.id === selected);
+  /** A catalog picture of a project component with the same name (shadcn's Button is a Button). */
+  const thumbnailOf = (name: string) => catalog.flatMap((l) => l.components).find((c) => c.name === name)?.thumbnail;
   const items = [{ value: PROJECT, label: "Your project" }, ...catalog.map((l) => ({ value: l.id, label: l.name }))];
 
   return (
@@ -119,11 +157,13 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
                 <div
                   key={key}
                   draggable
+                  onPointerDown={() => c.source === "shadcn" && picture(thumbnailOf(c.name))}
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = "copy";
                     e.dataTransfer.setData(DRAG_MIME, JSON.stringify(c));
                     dragChip(e, c.name);
-                    onDragging({ name: c.name, ...(c.previewable && { live: c.importFrom }) });
+                    const image = c.source === "shadcn" && pictures.get(thumbnailOf(c.name) ?? "");
+                    onDragging({ name: c.name, ...(c.previewable && { live: c.importFrom }), ...(image && { image }) });
                   }}
                   onDragEnd={() => onDragging(null)}
                   className="cursor-grab rounded px-2 py-1 hover:bg-muted"
@@ -202,6 +242,7 @@ function CatalogGrid({ lib, query, project, onDragging }: { lib: CatalogLibrary;
         <div
           key={c.name}
           draggable
+          onPointerDown={() => picture(c.thumbnail)}
           onDragStart={(e) => {
             // `library` marks a catalog drop; Workspace forwards it in preview-insert.
             const library = { id: lib.id, name: lib.name, install: lib.install, usage: c.usage };
@@ -210,7 +251,8 @@ function CatalogGrid({ lib, query, project, onDragging }: { lib: CatalogLibrary;
             dragChip(e, c.name);
             // Already installed in the project (shadcn copies components in): the frame can render the real one.
             const mine = project.find((p) => p.name === c.name && p.source === "shadcn" && p.previewable);
-            onDragging({ name: c.name, ...(mine && { live: mine.importFrom }) });
+            const image = pictures.get(c.thumbnail ?? "");
+            onDragging({ name: c.name, ...(mine && { live: mine.importFrom }), ...(image && { image }) });
           }}
           onDragEnd={() => onDragging(null)}
           className="cursor-grab overflow-hidden rounded border hover:bg-muted"

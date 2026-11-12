@@ -134,16 +134,27 @@ const pillStyle = "display:block;width:fit-content;align-self:flex-start;border:
 /** Module Divina writes for Vite + React projects (library.rs); it renders a library component into an element. */
 const MOUNT = "/.divina/mount.tsx";
 const unmounts = new WeakMap<Element, () => void>();
+const PILL_LOOK = ["border", "border-radius", "background", "color", "padding", "font"];
+/** A picture of the component (a cropped catalog thumbnail) in place of the pill. */
+function showPicture(box: HTMLElement, image: string) {
+  const picture = Object.assign(document.createElement("img"), { src: image, alt: "", draggable: false });
+  picture.style.cssText = "display:block;max-width:100%;pointer-events:none";
+  for (const property of PILL_LOOK) box.style.removeProperty(property);
+  box.replaceChildren(picture);
+  box.dataset.divinaView = "image";
+}
 /**
- * Stand-in for a dragged or dropped library component. With `live` (the module to load it from) the
- * project's dev server renders the real component in place, so it looks and lays out as it will;
- * if that fails (needs props or context, not a Vite project) the labelled pill stays.
+ * Stand-in for a dragged or dropped library component, in order of preference:
+ * - `live` (the module to load it from): the project's dev server renders the real component in
+ *   place, so it looks and lays out as it will;
+ * - `image`: a picture of it, when it can't render (needs props or context, not installed, not Vite);
+ * - else a pill with its name.
  */
-function makeBox(component: string, live?: string): HTMLElement {
+function makeBox(component: string, live?: string, image?: string): HTMLElement {
   const box = document.createElement("div");
   box.style.cssText = pillStyle;
-  box.textContent = component;
-  if (!live) return box;
+  const fallback = () => { if (image) showPicture(box, image); else box.textContent = component; };
+  if (!live) { fallback(); return box; }
   // Pointer events stay on the box, so a click selects the placeholder rather than pressing the component.
   const host = document.createElement("div");
   host.style.cssText = "display:contents;pointer-events:none";
@@ -152,14 +163,16 @@ function makeBox(component: string, live?: string): HTMLElement {
     .then((m) => m.mount(host, live, component))
     .then((unmount) => {
       unmounts.set(box, unmount);
-      for (const property of ["width", "align-self", "border", "border-radius", "background", "color", "padding", "font"]) box.style.removeProperty(property);
+      for (const property of ["width", "align-self", ...PILL_LOOK]) box.style.removeProperty(property);
       // The box takes the component's own outer display, so inline ones sit side by side and blocks stack.
       box.style.display = getComputedStyle(host.firstElementChild ?? host).display.startsWith("inline") ? "inline-block" : "block";
-      box.dataset.divinaLive = "true";
-      // It was placed and measured as a pill; the component has its own size.
+      box.dataset.divinaView = "live";
+    }, fallback)
+    .then(() => {
+      // It was placed and measured as a pill; the component or picture has its own size.
       if (ghost?.element === box) ghost.zone ? placeInZone(box, ghost.slot.container, ghost.zone, "fixed") : showSpacing(box, ghost.slot);
       updateOutline(selected);
-    }, () => { box.textContent = component; });
+    });
   return box;
 }
 function discard(box: Element) {
@@ -170,16 +183,41 @@ function discard(box: Element) {
 }
 /** A side-by-side row left with a single member dissolves back into its parent. */
 function tidy(row: Element | null) {
-  if (row?.matches(ROW) && row.children.length < 2) row.replaceWith(...row.children);
+  if (!row?.matches(ROW) || row.children.length > 1) return;
+  const parent = row.parentElement;
+  row.replaceWith(...row.children);
+  if (parent && ![...parent.children].some((child) => child.matches(ROW))) for (const method of ["removeChild", "insertBefore"]) Reflect.deleteProperty(parent, method);
+}
+/**
+ * While a row holds one of `parent`'s children, the parent still answers its framework: React removes
+ * and inserts through the element it rendered into, which throws for a child that now sits in the row.
+ */
+function standIn(parent: Node) {
+  const inRow = (node: Node | null | undefined): Element | null => {
+    const row = node?.parentNode;
+    return row instanceof Element && row.parentNode === parent && row.matches(ROW) ? row : null;
+  };
+  Object.assign(parent, {
+    removeChild(child: Node) {
+      const row = inRow(child);
+      const removed = Node.prototype.removeChild.call(row ?? parent, child);
+      tidy(row);
+      return removed;
+    },
+    insertBefore(node: Node, before: Node | null) {
+      return Node.prototype.insertBefore.call(parent, node, inRow(before) ?? before);
+    },
+  });
 }
 /** The element an edit is recorded against: a side-by-side row stands for its first or last member. */
 function through(anchor: Element, position: string): Element {
   return (anchor.matches(ROW) ? (position === "before" ? anchor.firstElementChild : anchor.lastElementChild) : null) ?? anchor;
 }
 const sideBySide = (slot: DropSlot) => !!slot.beside || slot.container.matches(ROW);
-// ponytail: a side drop moves the anchor into a wrapper row, as a canvas move reparents its element;
-// a framework re-render that removes the anchor meanwhile can throw, and `> *` selectors on the parent
-// now see the row. Preview with inline styles and a pinned element if that bites.
+// A side drop moves the anchor into a wrapper row. The row takes over the anchor's place as a flex
+// item, and `standIn` keeps the framework's own removals and insertions working meanwhile.
+// ponytail: parent selectors that name the anchor (`> h1`, `:nth-child`) stop matching it; preview
+// with inline styles and a pinned element if that bites.
 function placeAt(element: Element, slot: DropSlot) {
   const from = element.parentElement;
   const before = slot.position === "before";
@@ -189,7 +227,9 @@ function placeAt(element: Element, slot: DropSlot) {
     if (slot.beside) {
       const row = document.createElement("div");
       row.dataset.divinaRow = "true";
-      row.style.cssText = "display:flex;flex-direction:row;align-items:center;gap:8px";
+      const item = getComputedStyle(slot.anchor);
+      row.style.cssText = `display:flex;flex-direction:row;align-items:center;gap:8px;flex:${item.flex};align-self:${item.alignSelf};order:${item.order}`;
+      if (slot.anchor.parentNode) standIn(slot.anchor.parentNode);
       slot.anchor.replaceWith(row);
       row.append(slot.anchor);
     }
@@ -233,21 +273,24 @@ function showZones(container: Element, zone: InsertPlace | null) {
     (cell as HTMLElement).style.background = i === active[zone.y] * 3 + active[zone.x] ? "#7c3aed14" : "";
   });
 }
-function showGhost(hover: Hover | null, align: CrossAlignment | null = null, component = "Drop here", live?: string) {
+function showGhost(hover: Hover | null, align: CrossAlignment | null = null, component = "Drop here", live?: string, image?: string) {
   showZones(hover?.slot.container ?? document.body, hover?.zone ?? null);
   if (ghost && (!hover || ghost.component !== component)) { discard(ghost.element); ghost = null; }
   if (!hover) { spacing.replaceChildren(); return; }
   const { slot, zone } = hover;
   const same = ghost && !ghost.zone && !zone && ghost.slot.container === slot.container && ghost.slot.anchor === slot.anchor && ghost.slot.position === slot.position;
   if (!ghost) {
-    const element = makeBox(component, live);
+    const element = makeBox(component, live, image);
     element.dataset.divinaUi = "true";
     element.style.pointerEvents = "none";
     ghost = { element, slot, zone, component };
   }
   const box = ghost.element;
-  // A rendered component aligns as itself; the pill stays small unless an alignment is snapped.
-  box.style.alignSelf = align ? selfValue(align) : box.dataset.divinaLive ? "" : "flex-start";
+  const view = box.dataset.divinaView;
+  // The picture can arrive after the drag starts (the host crops it on first use).
+  if (image && !view && box.textContent) showPicture(box, image);
+  // A rendered component aligns as itself; the pill or picture stays small unless an alignment is snapped.
+  box.style.alignSelf = align ? selfValue(align) : view === "live" ? "" : "flex-start";
   if (zone) {
     Object.assign(ghost, { slot, zone });
     // On the body rather than the overlay root, so a rendered component inherits the page's text styles.
@@ -256,8 +299,9 @@ function showGhost(hover: Hover | null, align: CrossAlignment | null = null, com
     spacing.replaceChildren();
     return;
   }
-  // Unrendered, the pill follows the line it lands on: beside inline siblings, else on its own line.
-  if (!box.dataset.divinaLive && box.textContent) box.style.display = slot.axis === "row" && !/flex|grid/.test(getComputedStyle(slot.container).display) ? "inline-block" : "block";
+  // Until (or unless) the component renders, the pill or picture follows the line it lands on:
+  // beside inline siblings, else on its own line.
+  if (view !== "live") box.style.display = slot.axis === "row" && !/flex|grid/.test(getComputedStyle(slot.container).display) ? "inline-block" : "block";
   if (same) return;
   if (ghost.zone) Object.assign(box.style, { position: "", left: "", top: "", margin: "" });
   Object.assign(ghost, { slot, zone: null });
@@ -447,11 +491,11 @@ function onPointerUp(event: PointerEvent) {
   }
 }
 /** Host-driven drop of a library component at frame coords (pointer events never reach the iframe during a host drag). */
-function dropInsert(component: string, importFrom: string, x: number, y: number, library?: LibraryRef, live?: string) {
+function dropInsert(component: string, importFrom: string, x: number, y: number, library?: LibraryRef, live?: string, image?: string) {
   const hover = hoverAt(x, y);
   const align = hover && !hover.zone && !hover.slot.beside ? alignmentFor(hover.slot, x, y) : null;
   // The ghost goes to the drop point and stays there as the placeholder, so what was dragged is what lands.
-  showGhost(hover, align, component, live);
+  showGhost(hover, align, component, live, image);
   showSlot(null);
   showZones(document.body, null);
   spacing.replaceChildren();
@@ -538,10 +582,10 @@ function onDoubleClick(event: MouseEvent) {
   };
   target.addEventListener("blur", finish);
 }
-function showInsertHover(x: number, y: number, component?: string, live?: string) {
+function showInsertHover(x: number, y: number, component?: string, live?: string, image?: string) {
   const hover = hoverAt(x, y);
   const align = hover && !hover.zone && !hover.slot.beside ? alignmentFor(hover.slot, x, y) : null;
-  showGhost(hover, align, component, live);
+  showGhost(hover, align, component, live, image);
   showSlot(hover?.slot ?? null);
   // The ghost marks the spot; the slot line was measured before the ghost reflowed its siblings.
   indicator.style.display = "none";
@@ -581,10 +625,10 @@ function receive(event: MessageEvent<HostToOverlay>) {
       else updateOutline(selected);
       break;
     case "insert-hover":
-      showInsertHover(message.x, message.y, message.component, message.live);
+      showInsertHover(message.x, message.y, message.component, message.live, message.image);
       break;
     case "preview-insert":
-      dropInsert(message.component, message.importFrom, message.x, message.y, message.library, message.live);
+      dropInsert(message.component, message.importFrom, message.x, message.y, message.library, message.live, message.image);
       break;
     case "preview-edit": {
       const { file, line, col } = message.record.target;
