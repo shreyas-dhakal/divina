@@ -190,7 +190,7 @@ fn rpc(
             {"name":"screenshot_frame","description":"Capture the preview at its current viewport as PNG.","inputSchema":{"type":"object","properties":{}}},
             {"name":"get_dom_snapshot","description":"Get the preview DOM tree with source references.","inputSchema":{"type":"object","properties":{}}},
             {"name":"get_console_errors","description":"Get console errors from the preview.","inputSchema":{"type":"object","properties":{}}},
-            {"name":"measure_placement","description":"Measure where an element you placed actually renders: its box in px inside its container's content box, the same numbers a freely placed edit gives (x from the left, y from the top, width, height, containerWidth, containerHeight), plus the viewport width. Call it after implementing a free placement and fix the code until x and y match the edit.","inputSchema":{"type":"object","properties":{"selector":{"type":"string","description":"CSS selector for the placed element; the first match is measured."},"container":{"type":"string","description":"CSS selector for the container to measure against. Defaults to the element's parent."}},"required":["selector"]}},
+            {"name":"measure_placement","description":"Measure where an element you placed actually renders: its box in px inside its container's content box, the same numbers a freely placed edit gives (x from the left, y from the top, width, height, containerWidth, containerHeight), plus the viewport width. Call it after implementing a free placement, with that edit's id, and fix the code until it answers ok: true. edits_applied is refused while a free placement is unchecked or off.","inputSchema":{"type":"object","properties":{"edit":{"type":"string","description":"Id of the freely placed edit to check against."},"selector":{"type":"string","description":"CSS selector for the placed element; the first match is measured."},"container":{"type":"string","description":"CSS selector for the container to measure against. Defaults to the element's parent."}},"required":["selector"]}},
             {"name":"edits_applied","description":"Call when you've finished implementing the Divina edits, so Divina shows the user the diff to review.","inputSchema":{"type":"object","properties":{"summary":{"type":"string","description":"One line on what you changed."}}}}
         ]}),
         "tools/call" => {
@@ -258,6 +258,8 @@ fn rpc(
                 json!({"content":[{"type":"image","data":data,"mimeType":"image/png"}],"isError":false})
             } else if name == "get_pending_edits" {
                 pending_edits_result(payload)
+            } else if let Some(refused) = payload.get("refused").and_then(Value::as_str) {
+                json!({"content":[{"type":"text","text":refused}],"isError":true})
             } else if name == "edits_applied" {
                 let text = if payload["diffShown"] == true {
                     "Thanks. Divina is showing the user the diff to review."

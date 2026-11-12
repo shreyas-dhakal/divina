@@ -14,6 +14,7 @@ import { usePanelRef } from "react-resizable-panels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { installMcpBridge, type McpRequest } from "@/lib/mcpBridge";
+import { openPlacements, placementProblem, type Measured } from "@/lib/placement";
 import { PRESETS, scopeFor } from "@/lib/viewport";
 import type {
   AgentInfo,
@@ -96,6 +97,9 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   const appliedRef = useRef<EditRecord[]>([]);
   /** Checkpoints taken before each send, newest last; Undo walks back through them. */
   const runCheckpoints = useRef<string[]>([]);
+  /** Last measure_placement verdict per sent edit ("" = in place), and how often edits_applied was refused for them. */
+  const placementChecks = useRef(new Map<string, string>());
+  const refusals = useRef(0);
   const [hasCheckpoint, setHasCheckpoint] = useState(false);
   const editsRef = useRef(edits);
   editsRef.current = edits;
@@ -193,8 +197,11 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       // Only shows the diff of a sent checkpoint; the user still decides whether to Undo.
       if (req.tool === "edits_applied") {
         if (!runCheckpoints.current.length) return { diffShown: false };
+        const open = openPlacements(appliedRef.current, placementChecks.current);
+        // Send it back to fix its placements twice; after that the user hears exactly what is still off rather than waiting forever.
+        if (open.length && refusals.current++ < 2) return { refused: `Not finished: ${open.join("; ")}. Fix the code, check each with measure_placement, then call edits_applied again.` };
         const summary = typeof req.arguments.summary === "string" ? req.arguments.summary.trim() : "";
-        setNotice(summary ? `Agent finished: ${summary}` : "Agent finished.");
+        setNotice((summary ? `Agent finished: ${summary}` : "Agent finished.") + (open.length ? ` Placement not confirmed: ${open.join("; ")}.` : ""));
         await showDiff();
         return { diffShown: true };
       }
@@ -202,7 +209,13 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       if (req.tool === "measure_placement") {
         const { selector, container } = req.arguments;
         if (typeof selector !== "string" || !selector) return { error: "selector is required" };
-        return askOverlay({ type: "measure-request", requestId, selector, ...(typeof container === "string" && container && { container }) });
+        const measured = (await askOverlay({ type: "measure-request", requestId, selector, ...(typeof container === "string" && container && { container }) })) as Measured | { error: string };
+        const edit = [...appliedRef.current, ...editsRef.current].find((e) => e.id === req.arguments.edit);
+        if ("error" in measured) return measured;
+        if (!edit) return typeof req.arguments.edit === "string" ? { error: `No Divina edit has the id ${req.arguments.edit}.` } : measured;
+        const problem = placementProblem(edit, measured);
+        placementChecks.current.set(edit.id, problem);
+        return { ...measured, ok: !problem, ...(problem && { problem }) };
       }
       const frame = iframeRef.current?.getBoundingClientRect();
       // The native capture grabs what's on screen, so a zoomed frame partly scrolled away uses the in-page capture.
@@ -274,6 +287,8 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       runCheckpoints.current.push(cp.id);
       setHasCheckpoint(true);
       appliedRef.current = sent;
+      placementChecks.current.clear();
+      refusals.current = 0;
       // The agent works from the edit list; previews left in the DOM would mix with its HMR'd result.
       post({ type: "clear-optimistic" });
       setEdits((q) => q.filter((e) => !sent.includes(e)));
