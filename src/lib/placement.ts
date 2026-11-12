@@ -2,6 +2,14 @@ import type { EditRecord, ElementIdentity, FreePlace } from "@/shared/protocol";
 
 const freeOf = (e: EditRecord): FreePlace | undefined => (e.kind === "insert" || e.kind === "move" ? e.payload.free : undefined);
 
+/**
+ * The agent puts this attribute, with the edit's id, on the element it placed while it works, so Divina
+ * finds that element itself on any framework. An id Divina set in the DOM would not survive the
+ * re-render from the agent's new source, so it has to be in the code, and has to be gone at the end.
+ */
+export const MARKER = "data-divina-edit";
+export const markerSelector = (id: string) => `[${MARKER}=${JSON.stringify(id)}]`;
+
 /** What `measure_placement` found for a sent edit, as the overlay and host report it. */
 export interface Measured { x: number; y: number; containerWidth: number; matches: number; viewportWidth: number; element?: ElementIdentity }
 

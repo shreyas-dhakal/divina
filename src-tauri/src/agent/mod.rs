@@ -133,8 +133,8 @@ pub(crate) fn build_prompt(root: &Path, edits: &[EditRecord]) -> String {
                 crate::protocol::Scope::MobileDown => " Scope the classes with `max-md:`.",
             };
             out.push_str(&format!(
-                "\n\nEdit {}: the user placed this freely. Its box ({}×{}px) sits {}px from the left and {}px from the top of the content box ({}×{}px) of the container it was dropped on, at a {}px wide viewport; its anchor and position only name the nearest sibling there. Make it render at that spot using layout only: its place among the siblings, margins, padding, `gap`, and flex or grid alignment (`justify-*`, `items-*`, `self-*`, `m*-auto`), with values on the Tailwind scale. Never use absolute or fixed positioning or transforms.{scope}{snapped} Then call the divina `measure_placement` tool with `edit` set to this edit's id and a CSS selector matching only the element (plus `container` if it no longer sits directly in that container), and adjust the code until its x and y {close} and the tool answers `ok: true`; `edits_applied` is refused until then.",
-                edit.id, f.width, f.height, f.x, f.y, f.container_width, f.container_height, edit.viewport.width, snapped = snapped, close = close
+                "\n\nEdit {}: the user placed this freely. Its box ({}×{}px) sits {}px from the left and {}px from the top of the content box ({}×{}px) of the container it was dropped on, at a {}px wide viewport; its anchor and position only name the nearest sibling there. Make it render at that spot using layout only: its place among the siblings, margins, padding, `gap`, and flex or grid alignment (`justify-*`, `items-*`, `self-*`, `m*-auto`), with values on the Tailwind scale. Never use absolute or fixed positioning or transforms.{scope}{snapped} While you work, put `data-divina-edit=\"{id}\"` on the placed element itself (an inserted component's root element, or the moved element). Then call the divina `measure_placement` tool with `edit` set to `{id}` (plus `container`, a CSS selector for that container, if the element no longer sits directly in it; or `selector` if its component does not pass attributes through to the DOM), and adjust the code until its x and y {close} and the tool answers `ok: true`. Then remove the attribute; `edits_applied` is refused until the placement is ok and the attribute is gone.",
+                edit.id, f.width, f.height, f.x, f.y, f.container_width, f.container_height, edit.viewport.width, snapped = snapped, close = close, id = edit.id
             ));
         }
         if beside == Some(true) {
@@ -270,7 +270,7 @@ mod tests {
         assert!(p.contains("Scope the classes with `max-md:`."), "{p}");
         assert!(p.contains("snapped to a 4px grid, so they are exact Tailwind spacing values (4px = 1 unit): left 120px = 30, top 48px = 12."), "{p}");
         assert!(p.contains("`gap-30`, `pl-30`, `ml-30`; `gap-12`, `pt-12`, `mt-12`") && p.contains("`ml-[120px]`") && p.contains("162px to the right of the box and 216px below it"), "{p}");
-        assert!(p.contains("`measure_placement` tool") && p.contains("until its x and y match these numbers exactly and the tool answers `ok: true`"), "{p}");
+        assert!(p.contains("`measure_placement` tool") && p.contains("put `data-divina-edit=\"f1\"` on the placed element itself") && p.contains("until its x and y match these numbers exactly and the tool answers `ok: true`. Then remove the attribute"), "{p}");
     }
 
     #[test]

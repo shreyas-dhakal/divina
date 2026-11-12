@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { EditRecord } from "@/shared/protocol";
-import { openPlacements, placementProblem } from "./placement";
+import { markerSelector, openPlacements, placementProblem } from "./placement";
 
 const src = { file: "src/App.tsx", line: 4, col: 2, owners: [] };
 const edit = (id: string, snapStep?: number): EditRecord => ({
@@ -34,4 +34,8 @@ test("the measured element and container must be the ones the user placed", () =
   const move: EditRecord = { ...edit("m"), kind: "move", payload: { anchor: src, position: "after", free: { x: 120, y: 48, width: 76, height: 36, containerWidth: 358, containerHeight: 300 }, moved: { tag: "h2", text: "Pricing" } } };
   expect(placementProblem(move, { ...at(120, 48), element: { tag: "h2", text: "Pricing" } })).toBe("");
   expect(placementProblem(move, { ...at(120, 48), element: { tag: "h2", text: "Features" } })).toContain('not the moved <h2> "Pricing"');
+});
+
+test("the marker selector finds the element by edit id", () => {
+  expect(markerSelector("f1")).toBe('[data-divina-edit="f1"]');
 });

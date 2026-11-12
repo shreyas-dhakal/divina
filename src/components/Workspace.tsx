@@ -14,7 +14,7 @@ import { usePanelRef } from "react-resizable-panels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { installMcpBridge, type McpRequest } from "@/lib/mcpBridge";
-import { openPlacements, placementProblem, type Measured } from "@/lib/placement";
+import { MARKER, markerSelector, openPlacements, placementProblem, type Measured } from "@/lib/placement";
 import { PRESETS, scopeFor } from "@/lib/viewport";
 import type {
   AgentInfo,
@@ -198,6 +198,9 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       if (req.tool === "edits_applied") {
         if (!runCheckpoints.current.length) return { diffShown: false };
         const open = openPlacements(appliedRef.current, placementChecks.current);
+        // Markers are scaffolding for the check; none may stay in the user's code.
+        const left = (await askOverlay({ type: "measure-request", requestId, selector: `[${MARKER}]` }).catch(() => null)) as { matches?: number } | null;
+        if (left?.matches) open.push(`${left.matches} ${MARKER} attribute(s) are still in the code; remove them`);
         // Send it back to fix its placements twice; after that the user hears exactly what is still off rather than waiting forever.
         if (open.length && refusals.current++ < 2) return { refused: `Not finished: ${open.join("; ")}. Fix the code, check each with measure_placement, then call edits_applied again.` };
         const summary = typeof req.arguments.summary === "string" ? req.arguments.summary.trim() : "";
@@ -208,11 +211,11 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       if (req.tool === "get_dom_snapshot") return askOverlay({ type: "request-snapshot", requestId });
       if (req.tool === "measure_placement") {
         const { selector, container } = req.arguments;
-        if (typeof selector !== "string" || !selector) return { error: "selector is required" };
-        const measured = (await askOverlay({ type: "measure-request", requestId, selector, ...(typeof container === "string" && container && { container }) })) as Measured | { error: string };
         const edit = [...appliedRef.current, ...editsRef.current].find((e) => e.id === req.arguments.edit);
-        if ("error" in measured) return measured;
-        if (!edit) return typeof req.arguments.edit === "string" ? { error: `No Divina edit has the id ${req.arguments.edit}.` } : measured;
+        if (!edit) return { error: `No Divina edit has the id ${String(req.arguments.edit)}.` };
+        const marked = typeof selector !== "string" || !selector;
+        const measured = (await askOverlay({ type: "measure-request", requestId, selector: marked ? markerSelector(edit.id) : selector, ...(typeof container === "string" && container && { container }) })) as Measured | { error: string };
+        if ("error" in measured) return marked ? { error: `${measured.error} Put ${MARKER}="${edit.id}" on the placed element itself, or pass \`selector\` if its component does not pass attributes through to the DOM.` } : measured;
         const problem = placementProblem(edit, measured);
         placementChecks.current.set(edit.id, problem);
         return { ...measured, ok: !problem, ...(problem && { problem }) };
