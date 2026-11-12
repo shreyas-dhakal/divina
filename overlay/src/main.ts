@@ -1,5 +1,6 @@
 import type { DomNode, EditRecord, HostToOverlay, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
 import { applyPreview, buildDomAnchor, getUserCodeTarget, resolveSourceRef } from "./overlay.js";
+import { measureGaps, spacingLabel } from "./guides.js";
 import { pickDropSlot, type DropSlot } from "./slots.js";
 
 const hostOrigin = (() => {
@@ -50,7 +51,9 @@ const slotLabel = document.createElement("div");
 slotLabel.dataset.divinaUi = "true";
 slotLabel.style.cssText = "position:absolute;left:0;top:-21px;background:#7c3aed;color:white;padding:2px 5px;border-radius:3px;white-space:nowrap;font:12px/1.3 system-ui,sans-serif";
 containerHighlight.append(slotLabel);
-ui.append(outline, indicator, containerHighlight);
+const spacing = document.createElement("div");
+spacing.dataset.divinaUi = "true";
+ui.append(outline, indicator, containerHighlight, spacing);
 (document.documentElement ?? document.body).append(ui);
 
 function usable(element: Element | null): boolean {
@@ -79,6 +82,56 @@ function showSlot(slot: DropSlot | null) {
   slotLabel.textContent = `${slot.container.tagName.toLowerCase()}${firstClass ? `.${firstClass}` : ""} · ${slot.index + 1} of ${slot.total || 1} ${slot.axis === "row" ? "→" : "↓"}`;
   Object.assign(indicator.style, { left: `${slot.guide.x}px`, top: `${slot.guide.y}px`, width: `${slot.guide.width || 3}px`, height: `${slot.guide.height || 3}px` });
   indicator.style.display = "block";
+}
+// Sized to its label, not the parent: a block div spans the whole row and misrepresents a Button.
+const placeholderStyle = "display:inline-block;width:fit-content;align-self:flex-start;border:1px dashed #7c3aed;border-radius:6px;background:#7c3aed12;color:#6d28d9;padding:4px 12px;font:12px/1.5 system-ui";
+function placeAt(element: Element, slot: DropSlot) {
+  if (slot.position.startsWith("inside")) slot.container.insertBefore(element, slot.container.firstChild);
+  else slot.anchor.parentNode?.insertBefore(element, slot.position === "before" ? slot.anchor : slot.anchor.nextSibling);
+}
+/** Live stand-in during a library drag, so siblings reflow where the drop will land. */
+let ghost: { element: HTMLElement; slot: DropSlot } | null = null;
+function hoverSlot(x: number, y: number): DropSlot | null {
+  // Inserting the ghost shifts siblings under a still pointer; holding the slot while the pointer
+  // is over the ghost stops it hopping back and forth. `usable` already keeps it out of slot geometry.
+  const r = ghost?.element.getBoundingClientRect();
+  if (ghost && r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return ghost.slot;
+  return findSlot(x, y);
+}
+function showGhost(slot: DropSlot | null) {
+  if (!slot) { ghost?.element.remove(); ghost = null; spacing.replaceChildren(); return; }
+  if (ghost && ghost.slot.container === slot.container && ghost.slot.anchor === slot.anchor && ghost.slot.position === slot.position) return;
+  if (!ghost) {
+    const element = document.createElement("div");
+    element.dataset.divinaUi = "true";
+    element.style.cssText = `${placeholderStyle};pointer-events:none`;
+    // Label in a shadow root: light-DOM text would make an empty container look non-empty to pickDropSlot.
+    // ponytail: `insert-hover` carries no component name, so the ghost is generic; add an optional `component` to it to label the ghost.
+    element.attachShadow({ mode: "open" }).textContent = "Drop here";
+    ghost = { element, slot };
+  }
+  ghost.slot = slot;
+  placeAt(ghost.element, slot);
+  showSpacing(ghost.element, slot);
+}
+function showSpacing(element: Element, slot: DropSlot) {
+  const style = getComputedStyle(slot.container);
+  const box = slot.container.getBoundingClientRect();
+  const px = (value: string) => parseFloat(value) || 0;
+  const inner: Rect = { x: box.left + px(style.paddingLeft), y: box.top + px(style.paddingTop), width: box.width - px(style.paddingLeft) - px(style.paddingRight), height: box.height - px(style.paddingTop) - px(style.paddingBottom) };
+  const siblings = [...slot.container.children].filter(usable).map(rectOf);
+  const usesGap = /flex|grid/.test(style.display) && px(slot.axis === "row" ? style.columnGap : style.rowGap) > 0;
+  spacing.replaceChildren(...measureGaps(rectOf(element), siblings, inner, slot.axis).flatMap((gap) => {
+    const row = slot.axis === "row";
+    const line = document.createElement("div");
+    line.style.cssText = `position:fixed;pointer-events:none;background:#ef4444;${row ? `left:${gap.start}px;top:${gap.at}px;width:${gap.end - gap.start}px;height:1px` : `left:${gap.at}px;top:${gap.start}px;width:1px;height:${gap.end - gap.start}px`}`;
+    const text = document.createElement("div");
+    const mid = (gap.start + gap.end) / 2;
+    text.textContent = spacingLabel(gap.end - gap.start, usesGap && !gap.edge);
+    text.style.cssText = `position:fixed;pointer-events:none;transform:translate(-50%,-50%);background:#ef4444;color:white;padding:0 3px;border-radius:2px;font:10px/1.4 system-ui,sans-serif;white-space:nowrap;left:${row ? mid : gap.at}px;top:${row ? gap.at : mid}px`;
+    for (const mark of [line, text]) mark.dataset.divinaUi = "true";
+    return [line, text];
+  }));
 }
 function snapshot(element: Element): DomNode {
   const text = element.children.length ? undefined : (element.textContent ?? "").trim().slice(0, 160) || undefined;
@@ -166,7 +219,8 @@ function onPointerUp(event: PointerEvent) {
 }
 /** Host-driven drop of a library component at frame coords (pointer events never reach the iframe during a host drag). */
 function dropInsert(component: string, importFrom: string, x: number, y: number, library?: import("../../src/shared/protocol.ts").LibraryRef) {
-  const slot = findSlot(x, y);
+  const slot = hoverSlot(x, y);
+  showGhost(null);
   showSlot(null);
   if (!slot) return;
   const target = slot.anchor;
@@ -175,10 +229,8 @@ function dropInsert(component: string, importFrom: string, x: number, y: number,
   const box = document.createElement("div");
   box.dataset.divinaPlaceholder = "true";
   box.textContent = component;
-  // Sized to its label, not the parent: a block div spans the whole row and misrepresents a Button.
-  box.style.cssText = "display:inline-block;width:fit-content;align-self:flex-start;border:1px dashed #7c3aed;border-radius:6px;background:#7c3aed12;color:#6d28d9;padding:4px 12px;font:12px/1.5 system-ui";
-  if (position.startsWith("inside")) slot.container.insertBefore(box, slot.container.firstChild);
-  else target.parentNode?.insertBefore(box, position === "before" ? target : target.nextSibling);
+  box.style.cssText = placeholderStyle;
+  placeAt(box, slot);
   revert.push(() => box.remove());
   if (anchor) send({ type: "edit", record: record("insert", anchor, { component, importFrom, anchor, position, ...(library ? { library } : {}) }) });
   else {
@@ -221,7 +273,9 @@ function onDoubleClick(event: MouseEvent) {
   target.addEventListener("blur", finish);
 }
 function showInsertHover(x: number, y: number) {
-  showSlot(findSlot(x, y));
+  const slot = hoverSlot(x, y);
+  showGhost(slot);
+  showSlot(slot);
 }
 async function renderScreenshot(requestId: string) {
   const clone = document.documentElement.cloneNode(true) as HTMLElement;
@@ -276,6 +330,7 @@ function receive(event: MessageEvent<HostToOverlay>) {
       selected = null;
       updateOutline(null);
       showSlot(null);
+      showGhost(null);
       break;
     case "request-snapshot":
       if (message.requestId) send({ type: "dom-snapshot", requestId: message.requestId, root: snapshot(document.body) });

@@ -109,6 +109,8 @@ All are registered in `src-tauri/src/lib.rs`, and the typed wrappers are in `src
    - sends `edit` records
 2. The host stamps each record with the current viewport and `scopeFor` (`src/lib/viewport.ts`).
 3. **Library drags** don't send pointer events into the iframe (`dragDropEnabled=false` in `tauri.conf.json` keeps HTML5 drag in the webview). The host sends `insert-hover` and `preview-insert` with frame coordinates from `toFrameCoords`. Catalog cards add `library` to the drag JSON, and `preview-insert` forwards it into `InsertPayload.library`.
+   - On `insert-hover`, `showGhost` in `main.ts` places a `data-divina-ui` ghost at the slot (same `placeAt` mapping as `dropInsert`), so `usable` keeps it out of slot geometry and snapshots. `hoverSlot` returns the ghost's slot while the pointer is inside the ghost's rect, so the reflow it causes can't flip the slot. `dropInsert` uses `hoverSlot` too, then removes the ghost.
+   - `showSpacing` draws the red gap lines and labels from `measureGaps` and `spacingLabel` (pure helpers in `overlay/src/guides.ts`).
 4. **Library thumbnails:** `list_components` writes `.divina/preview.html` + `preview.tsx` (a lazy `import()` per module) for Vite projects. `Library` loads `<proxy>/.divina/preview.html?m=<importFrom>&n=<name>` in `pointer-events-none` iframes; the page posts `{divinaPreview: "importFrom#name", ok}` to the parent.
 5. **Properties edits** send `preview-edit`. `clear-optimistic` reverts everything.
 

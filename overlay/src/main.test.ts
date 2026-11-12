@@ -149,3 +149,48 @@ describe("optimistic Properties preview", () => {
     expect(el.className).toBe("grid gap-2");
   });
 });
+
+describe("library drag ghost", () => {
+  const box = (left: number, top: number, width: number, height: number) => ({ x: left, y: top, width, height, left, top, right: left + width, bottom: top + height, toJSON() {} });
+  const post = (data: object) => window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data }));
+  const setup = async () => {
+    window.parent.postMessage = (() => {}) as typeof window.parent.postMessage;
+    await import("./main.js");
+    document.body.innerHTML = `<main><section><button>A</button><button>B</button></section></main>`;
+    const container = document.querySelector("section")!;
+    container.style.display = "flex";
+    const [a, b] = [...container.children];
+    container.getBoundingClientRect = () => box(0, 0, 200, 100);
+    a!.getBoundingClientRect = () => box(0, 0, 80, 100);
+    b!.getBoundingClientRect = () => box(120, 0, 80, 100);
+    document.elementFromPoint = (x) => (x < 0 ? null : a!);
+    const ghost = () => container.querySelector("[data-divina-ui]");
+    return { container, a: a!, b: b!, ghost };
+  };
+  it("sits at the slot, holds it while the pointer is over it, and leaves with the hover", async () => {
+    const { container, a, ghost } = await setup();
+    post({ type: "insert-hover", x: 100, y: 20 });
+    const element = ghost()!;
+    expect([...container.children]).toEqual([a, element, container.children[2]]);
+    expect((element as HTMLElement).style.pointerEvents).toBe("none");
+    // Siblings unchanged, so x=170 alone would pick "after B"; the pointer is over the ghost, so the slot holds.
+    element.getBoundingClientRect = () => box(80, 0, 100, 100);
+    post({ type: "insert-hover", x: 170, y: 20 });
+    expect(container.children[1]).toBe(element);
+    post({ type: "insert-hover", x: 190, y: 20 });
+    expect(container.lastElementChild).toBe(element);
+    const labels = () => [...document.querySelectorAll("[data-divina-ui]")].filter((el) => /^\d+px/.test(el.textContent ?? ""));
+    expect(labels()).not.toHaveLength(0);
+    post({ type: "insert-hover", x: -1, y: -1 });
+    expect(ghost()).toBeNull();
+    expect(labels()).toHaveLength(0);
+  });
+  it("is replaced on drop by the placeholder in the same slot", async () => {
+    const { container, a, b, ghost } = await setup();
+    post({ type: "insert-hover", x: 100, y: 20 });
+    post({ type: "preview-insert", component: "Card", importFrom: "@/card", x: 100, y: 20 });
+    expect(ghost()).toBeNull();
+    expect([...container.children].map((el) => el.textContent)).toEqual(["A", "Card", "B"]);
+    expect([container.children[0], container.children[2]]).toEqual([a, b]);
+  });
+});
