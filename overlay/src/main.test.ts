@@ -1,7 +1,24 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applyPreview, buildDomAnchor, resolveSourceRef } from "./overlay.js";
 import { pickDropSlot } from "./slots.js";
+import { detectAlignment } from "./align.js";
+
+describe("cross-axis alignment", () => {
+  const rect = { x: 0, y: 0, width: 200, height: 100 };
+  it("snaps flex row pointers to start, center and end on the cross axis", () => {
+    expect(detectAlignment(rect, "row", { x: 20, y: 3 }, true)).toBe("start");
+    expect(detectAlignment(rect, "row", { x: 20, y: 50 }, true)).toBe("center");
+    expect(detectAlignment(rect, "row", { x: 20, y: 98 }, true)).toBe("end");
+  });
+  it("uses the horizontal cross axis for columns and ignores non-flex containers", () => {
+    expect(detectAlignment(rect, "column", { x: 2, y: 20 }, true)).toBe("start");
+    expect(detectAlignment(rect, "column", { x: 100, y: 20 }, true)).toBe("center");
+    expect(detectAlignment(rect, "column", { x: 198, y: 20 }, true)).toBe("end");
+    expect(detectAlignment(rect, "row", { x: 0, y: 50 }, false)).toBeNull();
+    expect(detectAlignment(rect, "row", { x: 0, y: 20 }, true)).toBeNull();
+  });
+});
 
 describe("source references", () => {
   it("reads file:line:col tags, the owner chain and a map index", () => {
@@ -70,6 +87,22 @@ describe("drop slots", () => {
     expect(pick(10, 10)).toMatchObject({ container, axis: "column", index: 0, position: "before", anchor: button });
     expect(pick(10, 55)).toMatchObject({ container, axis: "column", index: 1, position: "after", anchor: button });
   });
+  it("walks past an inline-flex button with an icon child", () => {
+    document.body.innerHTML = `<main><section><button><svg></svg>Save</button></section></main>`;
+    const container = document.querySelector("section")!;
+    const button = container.querySelector("button")!;
+    container.style.display = "flex";
+    container.style.flexDirection = "column";
+    button.style.display = "inline-flex";
+    container.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 100, left: 0, top: 0, right: 100, bottom: 100, toJSON() {} });
+    button.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 40, left: 0, top: 0, right: 100, bottom: 40, toJSON() {} });
+    document.elementFromPoint = () => button.querySelector("svg");
+    // jsdom computes inline-flex as flex; report what a browser does.
+    const real = getComputedStyle;
+    const spy = vi.spyOn(window, "getComputedStyle").mockImplementation((el) => el === button ? ({ ...real(el), display: "inline-flex" }) as CSSStyleDeclaration : real(el));
+    expect(pick(10, 35)).toMatchObject({ container, position: "after", anchor: button });
+    spy.mockRestore();
+  });
   it("returns inside-start for an empty container", () => {
     document.body.innerHTML = "<main><section></section></main>";
     const container = document.querySelector("section")!;
@@ -113,15 +146,22 @@ describe("untagged library insert", () => {
   it("sends an edit with a DOM anchor and empty source target", async () => {
     const sent: MessageEvent[] = [];
     window.parent.postMessage = ((message: unknown) => sent.push({ data: message } as MessageEvent)) as typeof window.parent.postMessage;
-    document.body.innerHTML = "<main><h1>Title</h1></main>";
+    document.body.innerHTML = "<main><section style='display:flex;flex-direction:column'><h1>Title</h1><p>Text</p></section></main>";
+    const section = document.querySelector("section")!;
     const target = document.querySelector("h1")!;
     document.elementFromPoint = () => target;
+    const box = (x: number, y: number, width: number, height: number) => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON() {} });
+    section.getBoundingClientRect = () => box(0, 0, 200, 100);
+    target.getBoundingClientRect = () => box(0, 0, 200, 40);
+    document.querySelector("p")!.getBoundingClientRect = () => box(0, 60, 200, 40);
     await import("./main.js");
-    window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data: { type: "preview-insert", component: "Button", importFrom: "@/button", x: 5, y: 5, library: { id: "ui", name: "UI", install: "", usage: "<Button/>" } } }));
-    const edit = sent.map((event) => event.data as { type?: string; record?: { target: { file: string }; dom?: { selector: string }; payload?: { library?: { id: string } } } }).find((message) => message.type === "edit")!;
+    window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data: { type: "preview-insert", component: "Button", importFrom: "@/button", x: 2, y: 5, library: { id: "ui", name: "UI", install: "", usage: "<Button/>" } } }));
+    const edit = sent.map((event) => event.data as { type?: string; record?: { target: { file: string }; dom?: { selector: string }; payload?: { align?: string; library?: { id: string } } } }).find((message) => message.type === "edit")!;
     expect(edit.record?.target.file).toBe("");
-    expect(edit.record?.dom?.selector).toBe("main > h1");
+    expect(edit.record?.dom?.selector).toBe("main > section > h1");
     expect(edit.record?.payload?.library?.id).toBe("ui");
+    expect(edit.record?.payload?.align).toBe("start");
+    expect(document.querySelector("[data-divina-placeholder]")?.getAttribute("style")).toContain("align-self: flex-start");
   });
 });
 

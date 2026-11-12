@@ -83,8 +83,9 @@ Selecting, moving, resizing and text editing need source tagging (see Known limi
 - **Resize handle:** creates a `resize` edit with width and height in px. The agent turns it into layout classes.
 - **Double-click text** to edit it in place, which creates a `text` edit.
 - **Drag a component from the library** into the frame. The same container outline and insertion-slot guide used for canvas moves follow the pointer, and a labelled placeholder sized to its label rather than the full row is inserted at that slot, which creates an `insert` edit.
-  - **Live ghost:** while dragging, a dashed "Drop here" pill sits in the page at the chosen slot, so siblings move aside to show the result. It moves only when the slot changes, and holds its slot while the pointer is over it. It disappears when the drag leaves the frame; on drop the placeholder takes its place.
+  - **Live ghost:** while dragging, a dashed pill with the component name sits in the page at the chosen slot, so siblings move aside to show the result. It moves only when the slot changes, and holds its slot while the pointer is over it. It disappears when the drag leaves the frame; on drop the placeholder takes its place.
   - **Spacing labels:** red Figma-style lines measure from the ghost to its neighbours along the slot axis, or to the container's padding edge when it's first or last. Labels show pixels, plus the Tailwind class when the container uses `gap` and the value is on the default scale (`16px · gap-4`).
+  - In flex rows and columns, moving near the container's cross-axis start, centre or end snaps the component's alignment, shows a magenta guide, and asks the agent to add the matching `self-start`, `self-center` or `self-end` Tailwind class. Drops outside those snap zones keep the existing alignment.
   - **On untagged pages** (any framework, Rust included), the edit has an empty `target.file` and a `dom` anchor instead: the element's CSS path, tag, its first text run (or the nearest sibling or heading text, up to 80 chars), and `meta` (`file:line:col`) when the framework exposes dev metadata (Svelte `__svelte_meta`; Vue component `__file`, line 0).
   - **Locating the code:** when the brief is built, Divina lists up to 5 likely source locations: `meta` first, then a search for the text (`git grep`, exact then case-insensitive, honouring `.gitignore` and skipping `node_modules`, `target`, `dist`, `build`, `.divina` and lockfiles; a file walk outside git). Text under 3 characters isn't searched.
   - **The agent decides:** the prompt gives the selector, text and candidates, says the purple placeholder marks the drop, and asks the agent to screenshot first, implement, then screenshot again and fix the placement if it's wrong.
@@ -157,6 +158,7 @@ When the Click-to-code source tagging checkbox is on, Divina adds dev-only `NODE
 
 The brief (pasted by Send to agent, and returned by `get_pending_edits`) contains:
 - the pending edits as JSON, with source refs, owner chain, viewport and scope
+- for a library insert snapped to a flex container's cross-axis alignment, the requested `self-start`, `self-center` or `self-end` class, scoped to the edit's viewport
 - for untagged edits, the selector, text and candidate source locations; for catalog inserts, the library's install command and usage
 - these instructions: implement only the requested changes; keep the project's patterns; map scope `all`, `tablet-down` and `mobile-down` to unprefixed, `max-lg:` and `max-md:` classes; no absolute positioning; no unrelated rewrites; verify with the divina `screenshot_frame` tool at the requested viewport and correct any mismatch before finishing; then call the divina `edits_applied` tool with a one-line summary
 

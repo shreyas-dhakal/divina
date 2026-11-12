@@ -2,6 +2,7 @@ import type { DomNode, EditRecord, HostToOverlay, OverlayMode, OverlayToHost, Re
 import { applyPreview, buildDomAnchor, getUserCodeTarget, resolveSourceRef } from "./overlay.js";
 import { measureGaps, spacingLabel } from "./guides.js";
 import { pickDropSlot, type DropSlot } from "./slots.js";
+import { detectAlignment, type CrossAlignment } from "./align.js";
 
 const hostOrigin = (() => {
   try { return new URL(document.referrer).origin; } catch { return ""; }
@@ -53,7 +54,14 @@ slotLabel.style.cssText = "position:absolute;left:0;top:-21px;background:#7c3aed
 containerHighlight.append(slotLabel);
 const spacing = document.createElement("div");
 spacing.dataset.divinaUi = "true";
-ui.append(outline, indicator, containerHighlight, spacing);
+const alignmentGuide = document.createElement("div");
+alignmentGuide.dataset.divinaUi = "true";
+alignmentGuide.style.cssText = "position:fixed;display:none;border-color:#d946ef;border-style:dashed;pointer-events:none;box-sizing:border-box";
+const alignmentLabel = document.createElement("div");
+alignmentLabel.dataset.divinaUi = "true";
+alignmentLabel.style.cssText = "position:absolute;background:#d946ef;color:white;padding:1px 4px;border-radius:3px;white-space:nowrap;font:10px/1.2 system-ui,sans-serif";
+alignmentGuide.append(alignmentLabel);
+ui.append(outline, indicator, containerHighlight, spacing, alignmentGuide);
 (document.documentElement ?? document.body).append(ui);
 
 function usable(element: Element | null): boolean {
@@ -75,7 +83,7 @@ function targetAt(x: number, y: number): Element | null {
 }
 function findSlot(x: number, y: number) { return pickDropSlot(x, y, usable, getUserCodeTarget); }
 function showSlot(slot: DropSlot | null) {
-  if (!slot) { indicator.style.display = "none"; containerHighlight.style.display = "none"; return; }
+  if (!slot) { indicator.style.display = "none"; containerHighlight.style.display = "none"; alignmentGuide.style.display = "none"; return; }
   const rect = slot.container.getBoundingClientRect();
   Object.assign(containerHighlight.style, { display: "block", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
   const firstClass = [...slot.container.classList].find((name) => !name.startsWith("data-"));
@@ -98,18 +106,20 @@ function hoverSlot(x: number, y: number): DropSlot | null {
   if (ghost && r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return ghost.slot;
   return findSlot(x, y);
 }
-function showGhost(slot: DropSlot | null) {
+function showGhost(slot: DropSlot | null, align: CrossAlignment | null = null, component = "Drop here") {
   if (!slot) { ghost?.element.remove(); ghost = null; spacing.replaceChildren(); return; }
-  if (ghost && ghost.slot.container === slot.container && ghost.slot.anchor === slot.anchor && ghost.slot.position === slot.position) return;
+  const same = ghost && ghost.slot.container === slot.container && ghost.slot.anchor === slot.anchor && ghost.slot.position === slot.position;
   if (!ghost) {
     const element = document.createElement("div");
     element.dataset.divinaUi = "true";
     element.style.cssText = `${placeholderStyle};pointer-events:none`;
     // Label in a shadow root: light-DOM text would make an empty container look non-empty to pickDropSlot.
-    // ponytail: `insert-hover` carries no component name, so the ghost is generic; add an optional `component` to it to label the ghost.
-    element.attachShadow({ mode: "open" }).textContent = "Drop here";
+    element.attachShadow({ mode: "open" });
     ghost = { element, slot };
   }
+  ghost.element.shadowRoot!.textContent = component;
+  ghost.element.style.alignSelf = align ? selfValue(align) : "flex-start";
+  if (same) return;
   ghost.slot = slot;
   placeAt(ghost.element, slot);
   showSpacing(ghost.element, slot);
@@ -132,6 +142,35 @@ function showSpacing(element: Element, slot: DropSlot) {
     for (const mark of [line, text]) mark.dataset.divinaUi = "true";
     return [line, text];
   }));
+}
+function selfValue(align: CrossAlignment) {
+  return align === "start" ? "flex-start" : align === "end" ? "flex-end" : "center";
+}
+function alignmentFor(slot: DropSlot, x: number, y: number): CrossAlignment | null {
+  return detectAlignment(contentRect(slot.container), slot.axis, { x, y }, getComputedStyle(slot.container).display.includes("flex"));
+}
+function contentRect(element: Element): Rect {
+  const rect = element.getBoundingClientRect();
+  const style = getComputedStyle(element);
+  const px = (value: string) => Number.parseFloat(value) || 0;
+  const left = px(style.borderLeftWidth) + px(style.paddingLeft);
+  const right = px(style.borderRightWidth) + px(style.paddingRight);
+  const top = px(style.borderTopWidth) + px(style.paddingTop);
+  const bottom = px(style.borderBottomWidth) + px(style.paddingBottom);
+  return { x: rect.left + left, y: rect.top + top, width: Math.max(0, rect.width - left - right), height: Math.max(0, rect.height - top - bottom) };
+}
+function showAlignment(slot: DropSlot | null, alignment: CrossAlignment | null) {
+  if (!slot || !alignment) { alignmentGuide.style.display = "none"; return; }
+  const rect = contentRect(slot.container);
+  const horizontal = slot.axis === "row";
+  const position = alignment === "start" ? (horizontal ? rect.y : rect.x) : alignment === "end" ? (horizontal ? rect.y + rect.height : rect.x + rect.width) : (horizontal ? rect.y + rect.height / 2 : rect.x + rect.width / 2);
+  Object.assign(alignmentGuide.style, horizontal
+    ? { display: "block", left: `${rect.x}px`, top: `${position}px`, width: `${rect.width}px`, height: "0", borderTopWidth: "1px" }
+    : { display: "block", left: `${position}px`, top: `${rect.y}px`, width: "0", height: `${rect.height}px`, borderLeftWidth: "1px" });
+  alignmentLabel.textContent = `self-${alignment}`;
+  Object.assign(alignmentLabel.style, horizontal
+    ? { left: "0", top: alignment === "start" ? "2px" : "-17px" }
+    : { left: "2px", top: "0" });
 }
 function snapshot(element: Element): DomNode {
   const text = element.children.length ? undefined : (element.textContent ?? "").trim().slice(0, 160) || undefined;
@@ -220,6 +259,7 @@ function onPointerUp(event: PointerEvent) {
 /** Host-driven drop of a library component at frame coords (pointer events never reach the iframe during a host drag). */
 function dropInsert(component: string, importFrom: string, x: number, y: number, library?: import("../../src/shared/protocol.ts").LibraryRef) {
   const slot = hoverSlot(x, y);
+  const align = slot ? alignmentFor(slot, x, y) : null;
   showGhost(null);
   showSlot(null);
   if (!slot) return;
@@ -230,12 +270,13 @@ function dropInsert(component: string, importFrom: string, x: number, y: number,
   box.dataset.divinaPlaceholder = "true";
   box.textContent = component;
   box.style.cssText = placeholderStyle;
+  if (align) box.style.alignSelf = selfValue(align);
   placeAt(box, slot);
   revert.push(() => box.remove());
-  if (anchor) send({ type: "edit", record: record("insert", anchor, { component, importFrom, anchor, position, ...(library ? { library } : {}) }) });
+  if (anchor) send({ type: "edit", record: record("insert", anchor, { component, importFrom, anchor, position, ...(align ? { align } : {}), ...(library ? { library } : {}) }) });
   else {
     const emptyTarget: SourceRef = { file: "", line: 0, col: 0, owners: [] };
-    send({ type: "edit", record: { ...record("insert", emptyTarget, { component, importFrom, anchor: emptyTarget, position, ...(library ? { library } : {}) }), dom: buildDomAnchor(target) } });
+    send({ type: "edit", record: { ...record("insert", emptyTarget, { component, importFrom, anchor: emptyTarget, position, ...(align ? { align } : {}), ...(library ? { library } : {}) }), dom: buildDomAnchor(target) } });
   }
 }
 function onClick(event: MouseEvent) {
@@ -272,10 +313,12 @@ function onDoubleClick(event: MouseEvent) {
   };
   target.addEventListener("blur", finish);
 }
-function showInsertHover(x: number, y: number) {
+function showInsertHover(x: number, y: number, component?: string) {
   const slot = hoverSlot(x, y);
-  showGhost(slot);
+  const align = slot ? alignmentFor(slot, x, y) : null;
+  showGhost(slot, align, component);
   showSlot(slot);
+  showAlignment(slot, align);
 }
 async function renderScreenshot(requestId: string) {
   const clone = document.documentElement.cloneNode(true) as HTMLElement;
@@ -310,7 +353,7 @@ function receive(event: MessageEvent<HostToOverlay>) {
       else updateOutline(selected);
       break;
     case "insert-hover":
-      showInsertHover(message.x, message.y);
+      showInsertHover(message.x, message.y, message.component);
       break;
     case "preview-insert":
       dropInsert(message.component, message.importFrom, message.x, message.y, message.library);

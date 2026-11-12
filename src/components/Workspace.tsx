@@ -63,7 +63,8 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   const [status, setStatus] = useState<DevServerStatus>({ state: project.run ? "starting" : "stopped" });
   const [logs, setLogs] = useState<string[]>([]);
   const [logsOpen, setLogsOpen] = useState(false);
-  const [dragging, setDragging] = useState(false);
+  /** Name of the library component being dragged, so the overlay can label its ghost. */
+  const [dragging, setDragging] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [edits, setEdits] = useState<EditRecord[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -287,10 +288,10 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
               viewport={viewport}
               setViewport={setViewport}
               iframeRef={iframeRef}
-              dragging={dragging}
-              onHover={({ x, y }) => post({ type: "insert-hover", x, y })}
+              dragging={!!dragging}
+              onHover={({ x, y }) => post({ type: "insert-hover", x, y, ...(dragging && { component: dragging }) })}
               onDrop={(c, x, y) => {
-                setDragging(false);
+                setDragging(null);
                 // Catalog cards carry `library`; project components don't, so their payload is unchanged.
                 const { library } = c as LibraryComponent & { library?: LibraryRef };
                 post({ type: "preview-insert", component: c.name, importFrom: c.importFrom, x, y, ...(library && { library }) });

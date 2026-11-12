@@ -25,7 +25,7 @@ function stackLabel(s: Stack | null) {
 const MAX_THUMBS = 60;
 
 /** `previewUrl` is the proxied dev server; Vite projects get live thumbnails from it. */
-export function Library({ root, previewUrl, onDragging }: { root: string; previewUrl: string | null; onDragging: (d: boolean) => void }) {
+export function Library({ root, previewUrl, onDragging }: { root: string; previewUrl: string | null; onDragging: (component: string | null) => void }) {
   const [components, setComponents] = useState<LibraryComponent[]>([]);
   /** Thumbnail result per `importFrom#name`; failed or empty ones fall back to the name. */
   const [rendered, setRendered] = useState<Record<string, boolean>>({});
@@ -119,9 +119,9 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = "copy";
                     e.dataTransfer.setData(DRAG_MIME, JSON.stringify(c));
-                    onDragging(true);
+                    onDragging(c.name);
                   }}
-                  onDragEnd={() => onDragging(false)}
+                  onDragEnd={() => onDragging(null)}
                   className="cursor-grab rounded px-2 py-1 hover:bg-muted"
                   title={c.importFrom}
                 >
@@ -178,7 +178,7 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
   );
 }
 
-function CatalogGrid({ lib, query, onDragging }: { lib: CatalogLibrary; query: string; onDragging: (d: boolean) => void }) {
+function CatalogGrid({ lib, query, onDragging }: { lib: CatalogLibrary; query: string; onDragging: (component: string | null) => void }) {
   const shown = lib.components.filter((c) => c.name.toLowerCase().includes(query));
   if (!shown.length) return <p className="p-2 text-muted-foreground">No components found.</p>;
   return (
@@ -192,9 +192,9 @@ function CatalogGrid({ lib, query, onDragging }: { lib: CatalogLibrary; query: s
             const library = { id: lib.id, name: lib.name, install: lib.install, usage: c.usage };
             e.dataTransfer.effectAllowed = "copy";
             e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ name: c.name, importFrom: lib.importFrom ?? "", library }));
-            onDragging(true);
+            onDragging(c.name);
           }}
-          onDragEnd={() => onDragging(false)}
+          onDragEnd={() => onDragging(null)}
           className="cursor-grab overflow-hidden rounded border hover:bg-muted"
           title={c.usage || c.name}
         >

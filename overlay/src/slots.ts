@@ -1,5 +1,7 @@
 import type { Position, Rect } from "../../src/shared/protocol.ts";
 
+const LEAF_TAGS = /^(IMG|INPUT|TEXTAREA|SELECT|VIDEO|AUDIO|CANVAS|IFRAME|HR|BR|PROGRESS|METER)$/;
+
 export type SlotAxis = "row" | "column";
 export type DropSlot = { container: Element; index: number; total: number; axis: SlotAxis; direction: string; guide: Rect; position: Position; anchor: Element };
 
@@ -14,7 +16,9 @@ export function pickDropSlot(x: number, y: number, usable: (element: Element | n
     const style = getComputedStyle(container);
     const display = style.display;
     const children = [...container.children].filter((child) => usable(child));
-    if (children.length || (!display.startsWith("inline") && !container.textContent?.trim())) break;
+    // Inline elements (an inline-flex Button, even with an icon child) are leaves; only a real empty
+    // HTML box (no text) takes an inside drop, not an icon, image or form control.
+    if (!display.startsWith("inline") && (children.length || (container instanceof HTMLElement && !LEAF_TAGS.test(container.tagName) && !container.textContent?.trim()))) break;
     container = container.parentElement;
   }
   if (!container || !usable(container)) return null;

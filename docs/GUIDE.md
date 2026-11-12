@@ -57,7 +57,8 @@ You can change all of this later from **Run command…** under the preview.
 - **Click** an element to select it. **Drag** it to move it; the purple line shows where it will land.
 - **Resize** with the corner handle, and **double-click** text to edit it.
 - **Properties** (right panel): change text, classes, padding, margin, gap, width and height.
-- **Library** (left panel): drag a component into the frame. A dashed "Drop here" pill shows where it will land, with red labels giving the spacing to its neighbours. On Vite projects each component shows a live thumbnail rendered by your dev server. To install more, type a command in the installer box, for example `pnpm dlx shadcn@latest add card`.
+- **Library** (left panel): drag a component into the frame. A dashed pill with the component name shows where it will land, with red labels giving the spacing to its neighbours. On Vite projects each component shows a live thumbnail rendered by your dev server. To install more, type a command in the installer box, for example `pnpm dlx shadcn@latest add card`.
+- In flex containers, drop near the start, centre or end of the cross axis to preview and request that alignment from the agent.
 - **Component libraries:** the dropdown above the library lists ready-made libraries for your stack (shadcn/ui for React, shadcn-vue for Vue, shadcn-svelte for Svelte, Thaw for Leptos), with pictures of each component. Drag one in and the agent installs the library if needed when you send your edits to it. **Add library…** adds your own, for this project or all of them.
 - **Any framework:** drops work even without source tagging, for example in a Rust, Vue or Django frontend. Divina searches your code for the text near the drop and the agent picks the spot, checking with a screenshot.
 
