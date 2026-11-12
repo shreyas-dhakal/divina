@@ -4,7 +4,7 @@ export type SlotAxis = "row" | "column";
 export type DropSlot = { container: Element; index: number; total: number; axis: SlotAxis; direction: string; guide: Rect; position: Position; anchor: Element };
 
 /** Reads layout geometry only; source tagging and overlay filtering are supplied by the caller. */
-export function pickDropSlot(x: number, y: number, usable: (element: Element | null) => boolean, getUserCodeTarget: (element: Element) => Element | null, resolveSourceRef: (element: Element) => unknown): DropSlot | null {
+export function pickDropSlot(x: number, y: number, usable: (element: Element | null) => boolean, getUserCodeTarget: (element: Element) => Element | null): DropSlot | null {
   let hit: Element | null = document.elementFromPoint(x, y);
   while (hit && !usable(hit)) hit = hit.parentElement;
   if (!hit) return null;
@@ -14,7 +14,7 @@ export function pickDropSlot(x: number, y: number, usable: (element: Element | n
     const style = getComputedStyle(container);
     const display = style.display;
     const children = [...container.children].filter((child) => usable(child));
-    if (display.includes("flex") || display.includes("grid") || (display === "block" && children.length)) break;
+    if (children.length || (!display.startsWith("inline") && !container.textContent?.trim())) break;
     container = container.parentElement;
   }
   if (!container || !usable(container)) return null;
@@ -46,7 +46,5 @@ export function pickDropSlot(x: number, y: number, usable: (element: Element | n
   }
   const logicalIndex = reversed ? children.length - index : index;
   const anchor = children[Math.min(logicalIndex ? logicalIndex - 1 : 0, children.length - 1)]!;
-  // Resolve here so callers can keep source-tagged anchors distinct from their DOM fallback.
-  void resolveSourceRef(anchor);
   return { container, index: logicalIndex, total: children.length + 1, axis, direction, guide, position: logicalIndex ? "after" : "before", anchor };
 }

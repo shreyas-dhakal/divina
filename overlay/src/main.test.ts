@@ -37,7 +37,7 @@ describe("drop slots", () => {
     children[1]!.getBoundingClientRect = () => box(direction.startsWith("row") ? 120 : 0, direction.startsWith("row") ? 0 : 60, direction.startsWith("row") ? 80 : 200, direction.startsWith("row") ? 100 : 40);
     return { container, children };
   };
-  const pick = (x: number, y: number) => pickDropSlot(x, y, (el) => !!el && el !== document.body && el !== document.documentElement && !el.closest("[data-divina-ui], [data-divina-placeholder]"), (el) => el, resolveSourceRef);
+  const pick = (x: number, y: number) => pickDropSlot(x, y, (el) => !!el && el !== document.body && el !== document.documentElement && !el.closest("[data-divina-ui], [data-divina-placeholder]"), (el) => el);
   it("uses row and column layout axes and picks the nearest slot between siblings", () => {
     const { children } = setup("row");
     document.elementFromPoint = () => children[0]!;
@@ -54,6 +54,21 @@ describe("drop slots", () => {
     const slot = pick(4, 20)!;
     expect(slot.container).toBe(container);
     expect([slot.index, slot.position, slot.anchor]).toEqual([0, "before", children[0]]);
+  });
+  it("walks past a text-only inline-flex button to its flex column", () => {
+    document.body.innerHTML = `<main><section><button>text</button><button>next</button></section></main>`;
+    const container = document.querySelector("section")!;
+    const [button, next] = [...container.children];
+    container.style.display = "flex";
+    container.style.flexDirection = "column";
+    (button as HTMLElement).style.display = "inline-flex";
+    const box = (left: number, top: number, width: number, height: number) => ({ x: left, y: top, width, height, left, top, right: left + width, bottom: top + height, toJSON() {} });
+    container.getBoundingClientRect = () => box(0, 0, 100, 100);
+    button!.getBoundingClientRect = () => box(0, 0, 100, 40);
+    next!.getBoundingClientRect = () => box(0, 60, 100, 40);
+    document.elementFromPoint = () => button!;
+    expect(pick(10, 10)).toMatchObject({ container, axis: "column", index: 0, position: "before", anchor: button });
+    expect(pick(10, 55)).toMatchObject({ container, axis: "column", index: 1, position: "after", anchor: button });
   });
   it("returns inside-start for an empty container", () => {
     document.body.innerHTML = "<main><section></section></main>";

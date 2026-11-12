@@ -70,7 +70,7 @@ function targetAt(x: number, y: number): Element | null {
   while (element && !usable(element)) element = element.parentElement;
   return element ? getUserCodeTarget(element) ?? element : null;
 }
-function findSlot(x: number, y: number) { return pickDropSlot(x, y, usable, getUserCodeTarget, resolveSourceRef); }
+function findSlot(x: number, y: number) { return pickDropSlot(x, y, usable, getUserCodeTarget); }
 function showSlot(slot: DropSlot | null) {
   if (!slot) { indicator.style.display = "none"; containerHighlight.style.display = "none"; return; }
   const rect = slot.container.getBoundingClientRect();
