@@ -77,7 +77,7 @@ function record(kind: EditRecord["kind"], target: SourceRef, payload?: EditRecor
   return { id: id(), kind, target, viewport: viewport(), scope: scope(), ...(payload === undefined ? {} : { payload }) } as EditRecord;
 }
 function updateOutline(element: Element | null) {
-  if (!element || !usable(element)) { outline.style.display = "none"; return; }
+  if (!element || !(usable(element) || element.matches("[data-divina-placeholder]"))) { outline.style.display = "none"; return; }
   const rect = rectOf(element);
   Object.assign(outline.style, { display: "block", left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` });
   label.textContent = element.tagName.toLowerCase();
@@ -225,6 +225,36 @@ function snapshot(element: Element): DomNode {
 }
 
 let drag: { element: Element; x: number; y: number; parent: Node; next: Node | null; slot: DropSlot | null } | null = null;
+// The host shows a trash button outside the frame while an element is dragged, and sends its
+// rect in frame coords; pointer capture keeps events coming once the pointer leaves the iframe.
+let trashZone: Rect | null = null;
+/** See-through copy that follows the pointer while the original stays faded in place. */
+let follower: { clone: HTMLElement; element: HTMLElement; opacity: string } | null = null;
+function lift(element: Element) {
+  if (!(element instanceof HTMLElement)) return;
+  const r = element.getBoundingClientRect();
+  // ponytail: a bare clone loses styles from ancestor selectors and inherited text styles, and is
+  // clipped at the frame edge; snapshot computed styles or draw it in the host if that misleads.
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.dataset.divinaUi = "true";
+  delete clone.dataset.divinaPlaceholder;
+  Object.assign(clone.style, { position: "fixed", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, margin: "0", boxSizing: "border-box", pointerEvents: "none", opacity: "0.85", boxShadow: "0 8px 24px #0003", transition: "none" });
+  ui.append(clone);
+  follower = { clone, element, opacity: element.style.opacity };
+  element.style.opacity = "0.3";
+}
+function land() {
+  if (!follower) return;
+  follower.clone.remove();
+  follower.element.style.opacity = follower.opacity;
+  follower = null;
+}
+let dragState: "idle" | "moving" | "over-trash" = "idle";
+function setDragState(state: typeof dragState) {
+  if (state !== dragState) send({ type: "drag", state: (dragState = state) });
+}
+const overTrash = (x: number, y: number) =>
+  !!trashZone && x >= trashZone.x && x <= trashZone.x + trashZone.width && y >= trashZone.y && y <= trashZone.y + trashZone.height;
 let resize: { element: HTMLElement; x: number; y: number; width: number; height: number; old: string } | null = null;
 function onPointerMove(event: PointerEvent) {
   if (resize) {
@@ -236,6 +266,14 @@ function onPointerMove(event: PointerEvent) {
     return;
   }
   if (drag) {
+    if (dragState === "idle") {
+      if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 4) return;
+      (event.target as Element).setPointerCapture?.(event.pointerId);
+      lift(drag.element);
+    }
+    if (follower) follower.clone.style.transform = `translate(${event.clientX - drag.x}px, ${event.clientY - drag.y}px)`;
+    if (overTrash(event.clientX, event.clientY)) { setDragState("over-trash"); drag.slot = null; showSlot(null); return; }
+    setDragState("moving");
     const slot = findSlot(event.clientX, event.clientY);
     if (slot && slot.container !== drag.element && !drag.element.contains(slot.container)) { drag.slot = slot; showSlot(slot); }
     return;
@@ -253,7 +291,8 @@ function onPointerDown(event: PointerEvent) {
     event.preventDefault();
     return;
   }
-  if (selected && usable(event.target as Element) && (event.target === selected || selected.contains(event.target as Node))) {
+  const placeholder = selected?.matches("[data-divina-placeholder]");
+  if (selected && (placeholder || usable(event.target as Element)) && (event.target === selected || selected.contains(event.target as Node))) {
     const parent = selected.parentNode;
     if (!parent) return;
     drag = { element: selected, x: event.clientX, y: event.clientY, parent, next: selected.nextSibling, slot: null };
@@ -275,6 +314,10 @@ function onPointerUp(event: PointerEvent) {
   if (drag) {
     const current = drag;
     drag = null;
+    const trashed = overTrash(event.clientX, event.clientY) && dragState !== "idle";
+    setDragState("idle");
+    land();
+    if (trashed) { selected = current.element; deleteSelected(); return; }
     const finalSlot = findSlot(event.clientX, event.clientY);
     current.slot = finalSlot && finalSlot.container !== current.element && !current.element.contains(finalSlot.container) ? finalSlot : null;
     showSlot(null);
@@ -310,7 +353,6 @@ function dropInsert(component: string, importFrom: string, x: number, y: number,
   const anchor = resolveSourceRef(target);
   const position = zone ? "inside-end" : slot.position;
   const box = document.createElement("div");
-  box.dataset.divinaPlaceholder = "true";
   box.textContent = component;
   box.style.cssText = placeholderStyle;
   if (align) box.style.alignSelf = selfValue(align);
@@ -320,13 +362,39 @@ function dropInsert(component: string, importFrom: string, x: number, y: number,
   else placeAt(box, slot);
   revert.push(() => box.remove());
   const extra = { ...(align ? { align } : {}), ...(zone ? { place: zone } : {}), ...(library ? { library } : {}) };
-  if (anchor) send({ type: "edit", record: record("insert", anchor, { component, importFrom, anchor, position, ...extra }) });
-  else {
-    const emptyTarget: SourceRef = { file: "", line: 0, col: 0, owners: [] };
-    send({ type: "edit", record: { ...record("insert", emptyTarget, { component, importFrom, anchor: emptyTarget, position, ...extra }), dom: buildDomAnchor(target) } });
-  }
+  const emptyTarget: SourceRef = { file: "", line: 0, col: 0, owners: [] };
+  const insert = anchor
+    ? record("insert", anchor, { component, importFrom, anchor, position, ...extra })
+    : { ...record("insert", emptyTarget, { component, importFrom, anchor: emptyTarget, position, ...extra }), dom: buildDomAnchor(target) };
+  // The edit id lets deleting the placeholder drop its queued insert.
+  box.dataset.divinaPlaceholder = insert.id;
+  send({ type: "edit", record: insert });
+}
+/** A dropped placeholder is just discarded; a real element is hidden and queued as a `delete` edit. */
+function deleteSelected() {
+  const element = selected;
+  if (!(element instanceof HTMLElement)) return;
+  selected = null;
+  updateOutline(null);
+  const placed = element.dataset.divinaPlaceholder;
+  if (placed) { element.remove(); send({ type: "discard-edit", id: placed }); return; }
+  const ref = resolveSourceRef(element);
+  if (!ref) return;
+  const display = element.style.display;
+  element.style.display = "none";
+  revert.push(() => { element.style.display = display; });
+  send({ type: "edit", record: record("delete", ref) });
+}
+function onKeyDown(event: KeyboardEvent) {
+  if (mode !== "select" || !selected || (event.key !== "Delete" && event.key !== "Backspace")) return;
+  const at = event.target as HTMLElement;
+  if (at.isContentEditable || at.closest?.("input, textarea, select")) return;
+  event.preventDefault();
+  deleteSelected();
 }
 function onClick(event: MouseEvent) {
+  const placed = mode === "select" && (event.target as Element).closest?.("[data-divina-placeholder]");
+  if (placed) { selected = placed; updateOutline(placed); return; }
   if (mode !== "select" || !usable(event.target as Element)) return;
   const target = getUserCodeTarget(event.target as Element);
   if (!target) return;
@@ -418,6 +486,9 @@ function receive(event: MessageEvent<HostToOverlay>) {
       }
       break;
     }
+    case "trash-zone":
+      trashZone = message.rect;
+      break;
     case "clear-optimistic":
       for (const undo of revert.splice(0).reverse()) undo();
       selected = null;
@@ -439,6 +510,7 @@ document.addEventListener("pointerdown", onPointerDown);
 document.addEventListener("pointerup", onPointerUp);
 document.addEventListener("click", onClick, true);
 document.addEventListener("dblclick", onDoubleClick);
+document.addEventListener("keydown", onKeyDown);
 window.addEventListener("resize", () => updateOutline(selected));
 const originalError = console.error.bind(console);
 console.error = (...args: unknown[]) => {

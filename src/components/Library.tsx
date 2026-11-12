@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type DragEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -119,6 +119,7 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = "copy";
                     e.dataTransfer.setData(DRAG_MIME, JSON.stringify(c));
+                    dragChip(e, c.name);
                     onDragging(c.name);
                   }}
                   onDragEnd={() => onDragging(null)}
@@ -178,6 +179,17 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
   );
 }
 
+/** A small named chip under the cursor instead of the browser's snapshot of the whole card. */
+function dragChip(e: DragEvent, name: string) {
+  const chip = document.createElement("div");
+  chip.textContent = name;
+  chip.className = "fixed -top-96 rounded-md border border-primary bg-background px-3 py-1 text-xs font-medium text-primary shadow-lg";
+  document.body.append(chip);
+  e.dataTransfer.setDragImage(chip, 12, 12);
+  // The drag image is captured synchronously, so the chip can go on the next tick.
+  setTimeout(() => chip.remove());
+}
+
 function CatalogGrid({ lib, query, onDragging }: { lib: CatalogLibrary; query: string; onDragging: (component: string | null) => void }) {
   const shown = lib.components.filter((c) => c.name.toLowerCase().includes(query));
   if (!shown.length) return <p className="p-2 text-muted-foreground">No components found.</p>;
@@ -192,6 +204,7 @@ function CatalogGrid({ lib, query, onDragging }: { lib: CatalogLibrary; query: s
             const library = { id: lib.id, name: lib.name, install: lib.install, usage: c.usage };
             e.dataTransfer.effectAllowed = "copy";
             e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ name: c.name, importFrom: lib.importFrom ?? "", library }));
+            dragChip(e, c.name);
             onDragging(c.name);
           }}
           onDragEnd={() => onDragging(null)}

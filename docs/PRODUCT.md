@@ -76,13 +76,15 @@ Three resizable columns:
 
 #### Editing on the canvas
 
-Selecting, moving, resizing and text editing need source tagging (see Known limits). Library drops work on any page.
+Selecting, moving, resizing, deleting and text editing need source tagging (see Known limits). Library drops work on any page.
 
 - **Hover** outlines elements. **Click** selects the usage site in your own code. Elements whose source is under `components/ui/` or `node_modules/` are skipped in favour of the nearest owner in your code. Items rendered by a `.map()` carry `list: {file, line, index}`.
-- **Drag a selected element** to move it. Divina snaps to the nearest insertion slot in the innermost usable layout container under the pointer. The dashed purple outline names the container, and the thicker guide shows the chosen slot; slots follow row or column layout direction. Empty containers use `inside-start`. The result is a `move` edit.
+- **Drag a selected element** to move it. Divina snaps to the nearest insertion slot in the innermost usable layout container under the pointer. The dashed purple outline names the container, and the thicker guide shows the chosen slot; slots follow row or column layout direction. Empty containers use `inside-start`. While held, a see-through copy of the element follows the pointer and the original fades in place. The result is a `move` edit.
 - **Resize handle:** creates a `resize` edit with width and height in px. The agent turns it into layout classes.
 - **Double-click text** to edit it in place, which creates a `text` edit.
+- **Delete:** while a selected element is dragged, a solid red trash button appears in the bottom-right corner of the preview pane, outside the frame. The host sends its rect to the overlay in frame coords (`trash-zone`), and the overlay captures the pointer so the drag continues past the frame edge. Dropping on it, or pressing Delete or Backspace with an element selected, hides the element and creates a `delete` edit. A dropped library placeholder can be selected, dragged to the trash or deleted by key, which removes it and its queued `insert` edit instead.
 - **Drag a component from the library** into the frame. The same container outline and insertion-slot guide used for canvas moves follow the pointer, and a labelled placeholder sized to its label rather than the full row is inserted at that slot, which creates an `insert` edit.
+  - **Drag image:** a small chip with the component name follows the cursor, instead of the browser's snapshot of the whole card.
   - **Live ghost:** while dragging, a dashed pill with the component name sits in the page at the chosen slot, so siblings move aside to show the result. It sits on its own line, sized to its label. The slot is measured as if the ghost weren't there, so a point always picks the same slot; it moves only when the slot changes, and holds its slot while the pointer is over it. It replaces the slot line during library drags. It disappears when the drag leaves the frame; on drop the placeholder takes its place.
   - **Spacing labels:** red Figma-style lines measure from the ghost to its neighbours along the slot axis, or to the container's padding edge when it's first or last. Labels show pixels, plus the Tailwind class when the container uses `gap` and the value is on the default scale (`16px · gap-4`).
   - In flex rows and columns, moving near the container's cross-axis start, centre or end snaps the component's alignment, shows a magenta guide, and asks the agent to add the matching `self-start`, `self-center` or `self-end` Tailwind class. Drops outside those snap zones keep the existing alignment.
@@ -196,6 +198,7 @@ Checkpoints are git objects under `refs/divina/checkpoints/<n>`, not files.
 
 ## Known limits (honest list)
 
+- **Trash button placement:** it is pinned to the preview pane's corner, so when the frame fills both width and height it can overlap the frame's corner.
 - **Limited canvas editing without tagging.** Without source tagging (non-React projects, or tagging off), clicking in the preview selects nothing, because the overlay needs `data-divina-src`. Library drops still work through DOM anchors, and agents in terminal tabs work as usual.
 - **Untagged drops are located by a guess.** The text search only finds text written literally in the source: not text built at runtime, i18n keys or icon-only elements. Repeated text gives several candidates. The agent picks and checks with screenshots, and can still pick wrong. Outside git the search reads every file, with no size limit.
 - **The "agent finished" signal is best effort.** The brief asks the agent to call `edits_applied`, but it may forget, call it early or not at all (for example when the user asks for edits without the brief). Show diff stays available as a button, and Undo is always manual. Divina-side sessions are gone; each CLI keeps its own history (resume with its own commands).

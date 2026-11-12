@@ -56,6 +56,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   const scope = scopeFor(viewport);
   const [url, setUrl] = useState<string | null>(null);
   const [frameError, setFrameError] = useState("");
+  const [canvasDrag, setCanvasDrag] = useState<"idle" | "moving" | "over-trash">("idle");
   const [info, setInfo] = useState(project);
   /** First open of a project asks how to run it; the dev server starts once that's saved. */
   const [setupOpen, setSetupOpen] = useState(project.run === null);
@@ -127,7 +128,9 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       else if (msg.type === "edit") {
         const vp = viewportRef.current;
         setEdits((q) => [...q, { ...msg.record, viewport: vp, scope: scopeFor(vp) }]);
-      } else if (msg.type === "dom-snapshot") pending.current.get(msg.requestId)?.(msg.root);
+      } else if (msg.type === "drag") setCanvasDrag(msg.state);
+      else if (msg.type === "discard-edit") setEdits((q) => q.filter((e) => e.id !== msg.id));
+      else if (msg.type === "dom-snapshot") pending.current.get(msg.requestId)?.(msg.root);
       else if (msg.type === "screenshot-response") pending.current.get(msg.requestId)?.({ dataUrl: msg.dataUrl });
       else if (msg.type === "console-error") {
         consoleErrors.current = [...consoleErrors.current.slice(-99), msg.message];
@@ -289,6 +292,8 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
               setViewport={setViewport}
               iframeRef={iframeRef}
               dragging={!!dragging}
+              canvasDrag={canvasDrag}
+              onTrashZone={(rect) => post({ type: "trash-zone", rect })}
               onHover={({ x, y }) => post({ type: "insert-hover", x, y, ...(dragging && { component: dragging }) })}
               onDrop={(c, x, y) => {
                 setDragging(null);

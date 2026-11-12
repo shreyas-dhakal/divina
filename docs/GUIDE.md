@@ -56,6 +56,7 @@ You can change all of this later from **Run command…** under the preview.
 - **Size:** pick Desktop, Tablet, Mobile or a custom size in the toolbar. Edits at Desktop apply everywhere. Edits at Tablet or Mobile apply at that size and smaller.
 - **Click** an element to select it. **Drag** it to move it; the purple line shows where it will land.
 - **Resize** with the corner handle, and **double-click** text to edit it.
+- **Delete:** drag a selected element to the red trash button that appears in the bottom-right corner of the preview area, or press Delete. This also removes a component you dropped from the library before you send it.
 - **Properties** (right panel): change text, classes, padding, margin, gap, width and height.
 - **Library** (left panel): drag a component into the frame. A dashed pill with the component name shows where it will land, with red labels giving the spacing to its neighbours. On Vite projects each component shows a live thumbnail rendered by your dev server. To install more, type a command in the installer box, for example `pnpm dlx shadcn@latest add card`.
 - In flex containers, drop near the start, centre or end of the cross axis to preview and request that alignment from the agent.

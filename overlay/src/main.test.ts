@@ -163,6 +163,36 @@ describe("untagged library insert", () => {
     expect(edit.record?.payload?.align).toBe("start");
     expect(document.querySelector("[data-divina-placeholder]")?.getAttribute("style")).toContain("align-self: flex-start");
   });
+
+  it("deletes a dropped placeholder by key and a tagged element by dragging it to the trash", async () => {
+    const sent: { type: string; id?: string; state?: string; record?: { id: string; kind: string; target: { file: string } } }[] = [];
+    window.parent.postMessage = ((message: never) => sent.push(message)) as typeof window.parent.postMessage;
+    await import("./main.js");
+    window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data: { type: "set-mode", mode: "select" } }));
+    const box = document.querySelector<HTMLElement>("[data-divina-placeholder]")!;
+    box.click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete" }));
+    expect(sent).toContainEqual({ type: "discard-edit", id: box.dataset.divinaPlaceholder });
+    expect(box.isConnected).toBe(false);
+
+    document.body.innerHTML = `<p data-divina-src="src/App.tsx:3:5">Hi</p>`;
+    const p = document.querySelector("p")!;
+    p.click();
+    // The host's trash button sits outside the frame, past its bottom-right corner.
+    window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data: { type: "trash-zone", rect: { x: 1050, y: 700, width: 56, height: 56 } } }));
+    const at = (type: string, x: number, y: number) => p.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y }));
+    at("pointerdown", 10, 10);
+    at("pointermove", 1070, 720);
+    expect(sent).toContainEqual({ type: "drag", state: "over-trash" });
+    expect(document.querySelectorAll("[data-divina-ui] p")).toHaveLength(1); // follower clone
+    at("pointerup", 1070, 720);
+    expect(sent[sent.length - 2]).toEqual({ type: "drag", state: "idle" });
+    const del = sent.find((m) => m.record?.kind === "delete")!;
+    expect(del.record?.target.file).toBe("src/App.tsx");
+    expect(p.style.display).toBe("none");
+    expect(p.style.opacity).toBe("");
+    expect(document.querySelectorAll("[data-divina-ui] p")).toHaveLength(0);
+  });
 });
 
 describe("optimistic Properties preview", () => {

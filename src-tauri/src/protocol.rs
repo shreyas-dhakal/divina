@@ -189,6 +189,14 @@ pub enum OverlayMode {
     Off,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DragState {
+    Idle,
+    Moving,
+    OverTrash,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case", rename_all_fields = "camelCase")]
 pub enum OverlayToHost {
@@ -196,6 +204,8 @@ pub enum OverlayToHost {
     Hover { r#ref: Option<SourceRef>, rect: Option<Rect> },
     Select { r#ref: SourceRef, rect: Rect, computed: BTreeMap<String, String> },
     Edit { record: EditRecord },
+    DiscardEdit { id: String },
+    Drag { state: DragState },
     DomSnapshot { request_id: String, root: DomNode },
     ConsoleError {
         message: String,
@@ -226,6 +236,7 @@ pub enum HostToOverlay {
     },
     PreviewEdit { record: EditRecord },
     ClearOptimistic,
+    TrashZone { rect: Rect },
     RequestSnapshot { request_id: String },
     ScreenshotRequest { request_id: String },
 }
@@ -491,10 +502,13 @@ mod tests {
         assert_eq!(del.edit, EditKind::Delete);
         roundtrip::<OverlayToHost>(json!({"type": "screenshot-response", "requestId": "r1", "dataUrl": "data:"}));
         roundtrip::<OverlayToHost>(json!({"type": "hover", "ref": null, "rect": null}));
+        roundtrip::<OverlayToHost>(json!({"type": "discard-edit", "id": "e1"}));
+        roundtrip::<OverlayToHost>(json!({"type": "drag", "state": "over-trash"}));
         roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Card", "importFrom": "x", "x": 10.5, "y": 20.0}));
         roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Button", "importFrom": "thaw", "x": 1.0, "y": 2.0,
             "library": {"id": "thaw", "name": "Thaw", "install": "cargo add thaw", "usage": "<Button/>"}}));
         roundtrip::<HostToOverlay>(json!({"type": "clear-optimistic"}));
+        roundtrip::<HostToOverlay>(json!({"type": "trash-zone", "rect": {"x": 1.0, "y": 2.0, "width": 3.0, "height": 4.0}}));
         roundtrip::<TerminalInfo>(json!({"id": "t1", "kind": "claude", "title": "Claude Code"}));
         roundtrip::<TerminalExit>(json!({"id": "t1", "code": null}));
         roundtrip::<ProjectTemplate>(json!({"id": "leptos", "name": "Leptos", "framework": "leptos",

@@ -127,6 +127,10 @@ export type OverlayToHost =
   | { type: "hover"; ref: SourceRef | null; rect: Rect | null }
   | { type: "select"; ref: SourceRef; rect: Rect; computed: Record<string, string> }
   | { type: "edit"; record: EditRecord }
+  /** The user deleted a dropped placeholder: drop its queued insert edit. */
+  | { type: "discard-edit"; id: string }
+  /** Canvas drag of a selected element; the host shows the trash zone unless idle. */
+  | { type: "drag"; state: "idle" | "moving" | "over-trash" }
   | { type: "dom-snapshot"; requestId: string; root: DomNode }
   | { type: "console-error"; message: string; stack?: string }
   | { type: "screenshot-request"; requestId: string }
@@ -141,6 +145,8 @@ export type HostToOverlay =
   /** Optimistic preview of a Properties edit on the element at record.target; reverted by clear-optimistic. */
   | { type: "preview-edit"; record: EditRecord }
   | { type: "clear-optimistic" }
+  /** The host's trash button in frame coords (outside the frame), for drag-to-delete hit-testing. */
+  | { type: "trash-zone"; rect: Rect }
   | { type: "request-snapshot"; requestId: string }
   /** In-page fallback capture; answered with OverlayToHost screenshot-response. */
   | { type: "screenshot-request"; requestId: string };

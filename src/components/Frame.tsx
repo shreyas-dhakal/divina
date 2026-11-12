@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { Delete02 } from "@/components/animate-ui/icons/hugeicons/delete-02";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { fitScale, PRESETS, toFrameCoords } from "@/lib/viewport";
-import type { LibraryComponent, Viewport } from "@/shared/protocol";
+import type { LibraryComponent, Rect, Viewport } from "@/shared/protocol";
 
 export const DRAG_MIME = "application/x-divina-component";
 
@@ -14,14 +16,19 @@ interface Props {
   setViewport: (vp: Viewport) => void;
   iframeRef: RefObject<HTMLIFrameElement | null>;
   dragging: boolean;
+  /** Canvas drag reported by the overlay; shows the trash zone it hit-tests. */
+  canvasDrag: "idle" | "moving" | "over-trash";
+  /** Trash button rect in frame coords, sent when a canvas drag starts. */
+  onTrashZone: (rect: Rect) => void;
   onDrop: (c: LibraryComponent, x: number, y: number) => void;
   /** Drag position in frame coords; off-frame (-1,-1) when the drag leaves. */
   onHover: (p: { x: number; y: number }) => void;
 }
 
-export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, dragging, onDrop, onHover }: Props) {
+export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, dragging, canvasDrag, onTrashZone, onDrop, onHover }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
+  const trashRef = useRef<HTMLDivElement>(null);
   const [avail, setAvail] = useState({ w: 1, h: 1 });
 
   useEffect(() => {
@@ -32,6 +39,13 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
   }, []);
 
   const scale = fitScale(viewport, avail.w, avail.h);
+  const draggingOnCanvas = canvasDrag !== "idle";
+  useEffect(() => {
+    if (!draggingOnCanvas || !frameRef.current || !trashRef.current) return;
+    const t = trashRef.current.getBoundingClientRect();
+    const { x, y } = toFrameCoords(t.left, t.top, frameRef.current.getBoundingClientRect(), scale);
+    onTrashZone({ x, y, width: t.width / scale, height: t.height / scale });
+  }, [draggingOnCanvas, scale]);
   const custom = (w: number, h: number) => setViewport({ preset: "custom", width: w || 1, height: h || 1 });
 
   return (
@@ -65,7 +79,19 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
         <span className="ml-auto text-xs text-muted-foreground">{Math.round(scale * 100)}%</span>
       </div>
 
-      <div ref={boxRef} className="flex flex-1 items-center justify-center overflow-hidden bg-muted/40">
+      <div ref={boxRef} className="relative flex flex-1 items-center justify-center overflow-hidden bg-muted/40">
+        {/* ponytail: pinned to the pane's corner, so it can overlap the frame when both axes are tight; reserve a strip if that bites. */}
+        <div
+          ref={trashRef}
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute right-3 bottom-3 z-10 flex size-14 items-center justify-center rounded-xl bg-destructive text-white shadow-lg transition-all duration-200",
+            draggingOnCanvas ? "opacity-100" : "scale-90 opacity-0",
+            canvasDrag === "over-trash" && "scale-115 shadow-xl",
+          )}
+        >
+          <Delete02 size={26} animate={canvasDrag === "over-trash"} />
+        </div>
         {url ? (
           <div
             ref={frameRef}
