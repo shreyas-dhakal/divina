@@ -29,6 +29,8 @@ export type Scope = "all" | "tablet-down" | "mobile-down";
 
 export type Position = "before" | "after" | "inside-start" | "inside-end";
 export type InsertAlignment = "start" | "center" | "end";
+/** Cell of a 3×3 grid over a container's free space: x is left/centre/right, y is top/middle/bottom. */
+export interface InsertPlace { x: InsertAlignment; y: InsertAlignment }
 
 export interface InsertPayload {
   component: string;
@@ -36,6 +38,8 @@ export interface InsertPayload {
   anchor: SourceRef;
   position: Position;
   align?: InsertAlignment;
+  /** Set for a drop on empty space; the agent places it there with layout, not absolute positioning. */
+  place?: InsertPlace;
   /** Set when the component comes from the catalog; the agent installs the library if missing. */
   library?: LibraryRef;
 }

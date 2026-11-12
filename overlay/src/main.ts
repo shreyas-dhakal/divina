@@ -1,8 +1,9 @@
-import type { DomNode, EditRecord, HostToOverlay, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
+import type { DomNode, EditRecord, HostToOverlay, InsertPlace, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
 import { applyPreview, buildDomAnchor, getUserCodeTarget, resolveSourceRef } from "./overlay.js";
 import { measureGaps, spacingLabel } from "./guides.js";
 import { pickDropSlot, type DropSlot } from "./slots.js";
 import { detectAlignment, type CrossAlignment } from "./align.js";
+import { zoneAt, zoneName, zoneOffset } from "./zones.js";
 
 const hostOrigin = (() => {
   try { return new URL(document.referrer).origin; } catch { return ""; }
@@ -61,7 +62,12 @@ const alignmentLabel = document.createElement("div");
 alignmentLabel.dataset.divinaUi = "true";
 alignmentLabel.style.cssText = "position:absolute;background:#d946ef;color:white;padding:1px 4px;border-radius:3px;white-space:nowrap;font:10px/1.2 system-ui,sans-serif";
 alignmentGuide.append(alignmentLabel);
-ui.append(outline, indicator, containerHighlight, spacing, alignmentGuide);
+/** Faint 3×3 grid over a container's free space while a drop is in placement-zone mode. */
+const zoneGuide = document.createElement("div");
+zoneGuide.dataset.divinaUi = "true";
+zoneGuide.style.cssText = "position:fixed;display:none;grid-template:repeat(3,1fr)/repeat(3,1fr);pointer-events:none";
+for (let i = 0; i < 9; i++) zoneGuide.append(Object.assign(document.createElement("div"), { style: "border:1px dashed #7c3aed40" }));
+ui.append(outline, indicator, containerHighlight, spacing, alignmentGuide, zoneGuide);
 (document.documentElement ?? document.body).append(ui);
 
 function usable(element: Element | null): boolean {
@@ -98,36 +104,64 @@ function placeAt(element: Element, slot: DropSlot) {
   if (slot.position.startsWith("inside")) slot.container.insertBefore(element, slot.container.firstChild);
   else slot.anchor.parentNode?.insertBefore(element, slot.position === "before" ? slot.anchor : slot.anchor.nextSibling);
 }
+/** A library-drag target: a slot between children, or a placement zone on the container's empty space. */
+type Hover = { slot: DropSlot; zone: InsertPlace | null };
 /** Live stand-in during a library drag, so siblings reflow where the drop will land. */
-let ghost: { element: HTMLElement; slot: DropSlot } | null = null;
-function hoverSlot(x: number, y: number): DropSlot | null {
+let ghost: { element: HTMLElement; slot: DropSlot; zone: InsertPlace | null } | null = null;
+function hoverAt(x: number, y: number): Hover | null {
   // Inserting the ghost shifts siblings under a still pointer; holding the slot while the pointer
   // is over the ghost stops it hopping back and forth. `usable` already keeps it out of slot geometry.
-  const r = ghost?.element.getBoundingClientRect();
-  if (ghost && r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return ghost.slot;
+  const r = ghost && !ghost.zone ? ghost.element.getBoundingClientRect() : null;
+  if (ghost && r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return { slot: ghost.slot, zone: null };
   // Measure the page without the ghost: it grows its container, so the same point would otherwise
   // pick a different slot depending on where the ghost last was.
-  if (!ghost) return findSlot(x, y);
-  ghost.element.style.display = "none";
+  if (ghost) ghost.element.style.display = "none";
   const slot = findSlot(x, y);
-  ghost.element.style.display = "";
-  return slot;
+  const hover = slot && { slot, zone: zoneAt(contentRect(slot.container), [...slot.container.children].filter(usable).map(rectOf), x, y) };
+  if (ghost) ghost.element.style.display = "";
+  return hover;
 }
-function showGhost(slot: DropSlot | null, align: CrossAlignment | null = null, component = "Drop here") {
-  if (!slot) { ghost?.element.remove(); ghost = null; spacing.replaceChildren(); return; }
-  const same = ghost && ghost.slot.container === slot.container && ghost.slot.anchor === slot.anchor && ghost.slot.position === slot.position;
+/** Pins `element` at `zone` of the container's content box; out of the page's flow, so it is preview only. */
+function placeInZone(element: HTMLElement, container: Element, zone: InsertPlace, position: "fixed" | "absolute") {
+  element.style.position = position;
+  const at = zoneOffset(contentRect(container), element.getBoundingClientRect(), zone);
+  const scroll = position === "absolute" ? { x: scrollX, y: scrollY } : { x: 0, y: 0 };
+  Object.assign(element.style, { left: `${at.x + scroll.x}px`, top: `${at.y + scroll.y}px`, margin: "0" });
+}
+function showZones(container: Element, zone: InsertPlace | null) {
+  if (!zone) { zoneGuide.style.display = "none"; return; }
+  const box = contentRect(container);
+  Object.assign(zoneGuide.style, { display: "grid", left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`, height: `${box.height}px` });
+  const active = { start: 0, center: 1, end: 2 };
+  [...zoneGuide.children].forEach((cell, i) => {
+    (cell as HTMLElement).style.background = i === active[zone.y] * 3 + active[zone.x] ? "#7c3aed14" : "";
+  });
+}
+function showGhost(hover: Hover | null, align: CrossAlignment | null = null, component = "Drop here") {
+  showZones(hover?.slot.container ?? document.body, hover?.zone ?? null);
+  if (!hover) { ghost?.element.remove(); ghost = null; spacing.replaceChildren(); return; }
+  const { slot, zone } = hover;
+  const same = ghost && !ghost.zone && !zone && ghost.slot.container === slot.container && ghost.slot.anchor === slot.anchor && ghost.slot.position === slot.position;
   if (!ghost) {
     const element = document.createElement("div");
     element.dataset.divinaUi = "true";
     element.style.cssText = `${placeholderStyle};pointer-events:none`;
     // Label in a shadow root: light-DOM text would make an empty container look non-empty to pickDropSlot.
     element.attachShadow({ mode: "open" });
-    ghost = { element, slot };
+    ghost = { element, slot, zone };
   }
   ghost.element.shadowRoot!.textContent = component;
   ghost.element.style.alignSelf = align ? selfValue(align) : "flex-start";
+  if (zone) {
+    Object.assign(ghost, { slot, zone });
+    ui.append(ghost.element);
+    placeInZone(ghost.element, slot.container, zone, "fixed");
+    spacing.replaceChildren();
+    return;
+  }
   if (same) return;
-  ghost.slot = slot;
+  if (ghost.zone) Object.assign(ghost.element.style, { position: "", left: "", top: "", margin: "" });
+  Object.assign(ghost, { slot, zone: null });
   placeAt(ghost.element, slot);
   showSpacing(ghost.element, slot);
 }
@@ -265,25 +299,31 @@ function onPointerUp(event: PointerEvent) {
 }
 /** Host-driven drop of a library component at frame coords (pointer events never reach the iframe during a host drag). */
 function dropInsert(component: string, importFrom: string, x: number, y: number, library?: import("../../src/shared/protocol.ts").LibraryRef) {
-  const slot = hoverSlot(x, y);
-  const align = slot ? alignmentFor(slot, x, y) : null;
+  const hover = hoverAt(x, y);
+  const align = hover && !hover.zone ? alignmentFor(hover.slot, x, y) : null;
   showGhost(null);
   showSlot(null);
-  if (!slot) return;
-  const target = slot.anchor;
+  if (!hover) return;
+  const { slot, zone } = hover;
+  // A zone drop goes at the end of the container; `place` tells the agent where it should render.
+  const target = zone ? slot.container : slot.anchor;
   const anchor = resolveSourceRef(target);
-  const position = slot.position;
+  const position = zone ? "inside-end" : slot.position;
   const box = document.createElement("div");
   box.dataset.divinaPlaceholder = "true";
   box.textContent = component;
   box.style.cssText = placeholderStyle;
   if (align) box.style.alignSelf = selfValue(align);
-  placeAt(box, slot);
+  // ponytail: the zone placeholder is pinned in page coordinates, so it drifts if the layout reflows
+  // before the agent runs; render it with real layout classes if that misleads.
+  if (zone) { document.body.append(box); placeInZone(box, slot.container, zone, "absolute"); }
+  else placeAt(box, slot);
   revert.push(() => box.remove());
-  if (anchor) send({ type: "edit", record: record("insert", anchor, { component, importFrom, anchor, position, ...(align ? { align } : {}), ...(library ? { library } : {}) }) });
+  const extra = { ...(align ? { align } : {}), ...(zone ? { place: zone } : {}), ...(library ? { library } : {}) };
+  if (anchor) send({ type: "edit", record: record("insert", anchor, { component, importFrom, anchor, position, ...extra }) });
   else {
     const emptyTarget: SourceRef = { file: "", line: 0, col: 0, owners: [] };
-    send({ type: "edit", record: { ...record("insert", emptyTarget, { component, importFrom, anchor: emptyTarget, position, ...(align ? { align } : {}), ...(library ? { library } : {}) }), dom: buildDomAnchor(target) } });
+    send({ type: "edit", record: { ...record("insert", emptyTarget, { component, importFrom, anchor: emptyTarget, position, ...extra }), dom: buildDomAnchor(target) } });
   }
 }
 function onClick(event: MouseEvent) {
@@ -321,13 +361,14 @@ function onDoubleClick(event: MouseEvent) {
   target.addEventListener("blur", finish);
 }
 function showInsertHover(x: number, y: number, component?: string) {
-  const slot = hoverSlot(x, y);
-  const align = slot ? alignmentFor(slot, x, y) : null;
-  showGhost(slot, align, component);
-  showSlot(slot);
+  const hover = hoverAt(x, y);
+  const align = hover && !hover.zone ? alignmentFor(hover.slot, x, y) : null;
+  showGhost(hover, align, component);
+  showSlot(hover?.slot ?? null);
   // The ghost marks the spot; the slot line was measured before the ghost reflowed its siblings.
   indicator.style.display = "none";
-  showAlignment(slot, align);
+  if (hover?.zone) slotLabel.textContent = slotLabel.textContent!.replace(/ · .*/, ` · ${zoneName(hover.zone)}`);
+  showAlignment(hover?.slot ?? null, align);
 }
 async function renderScreenshot(requestId: string) {
   const clone = document.documentElement.cloneNode(true) as HTMLElement;
