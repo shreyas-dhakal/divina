@@ -66,7 +66,7 @@ export function Welcome({ onOpen }: { onOpen: (p: ProjectInfo) => void }) {
   return (
     <div className="relative flex h-screen items-center justify-center overflow-hidden bg-background text-foreground">
       {/* Centred just inside the corner, so the rings run off two edges. */}
-      <Orbis className="pointer-events-none absolute top-0 left-0 size-[75vmin] -translate-1/3 opacity-50" />
+      <Orbis className="pointer-events-none absolute top-0 left-0 size-[150vmin] -translate-[62.5vmin] opacity-50" />
       <div className="absolute bottom-0 left-0 w-60">
         <SettingsFooter />
       </div>
