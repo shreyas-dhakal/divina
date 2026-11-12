@@ -121,7 +121,12 @@ pub(crate) fn build_prompt(root: &Path, edits: &[EditRecord]) -> String {
             _ => continue,
         };
         if let Some(f) = free {
-            let snapped = f.snap_step.map(|step| format!(" The free offsets were grid-snapped to {step}px increments; they are on the Tailwind spacing scale (4px = 1 unit), so map them exactly to spacing classes.")).unwrap_or_default();
+            // The grid step is a multiple of 4px, so snapped offsets are whole Tailwind spacing units: hand the agent the units, not arithmetic.
+            let snapped = f.snap_step.map(|step| format!(
+                " The offsets were snapped to a {step}px grid, so they are exact Tailwind spacing values (4px = 1 unit): left {}px = {} (e.g. `ml-{}`, `pl-{}` or `gap-{}`), top {}px = {} (e.g. `mt-{}`, `pt-{}` or `gap-{}`). That leaves {}px to the right of the box and {}px below it. Use these exact values, not approximations.",
+                f.x, f.x / 4.0, f.x / 4.0, f.x / 4.0, f.x / 4.0, f.y, f.y / 4.0, f.y / 4.0, f.y / 4.0, f.y / 4.0,
+                f.container_width - f.x - f.width, f.container_height - f.y - f.height
+            )).unwrap_or_default();
             let scope = match edit.scope {
                 crate::protocol::Scope::All => "",
                 crate::protocol::Scope::TabletDown => " Scope the classes with `max-lg:`.",
@@ -263,7 +268,7 @@ mod tests {
         let p = build_prompt(Path::new("/nonexistent"), &edits);
         assert!(p.contains("Edit f1: the user placed this freely. Its box (76×36px) sits 120px from the left and 48px from the top of the content box (358×300px)"), "{p}");
         assert!(p.contains("Scope the classes with `max-md:`."), "{p}");
-        assert!(p.contains("grid-snapped to 4px increments; they are on the Tailwind spacing scale (4px = 1 unit)"), "{p}");
+        assert!(p.contains("snapped to a 4px grid, so they are exact Tailwind spacing values (4px = 1 unit): left 120px = 30 (e.g. `ml-30`, `pl-30` or `gap-30`), top 48px = 12 (e.g. `mt-12`, `pt-12` or `gap-12`). That leaves 162px to the right of the box and 216px below it."), "{p}");
     }
 
     #[test]

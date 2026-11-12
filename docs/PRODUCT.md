@@ -76,7 +76,7 @@ Three resizable columns:
   - **Focus on the canvas:** the left (library) and right (properties, terminal) sidebars collapse with the panel buttons at either end of the canvas toolbar, or by dragging their handle to the edge. ⌘\ hides both, or shows both when both are hidden (forwarded from the page too). Terminals keep running while hidden.
   - **Cursor:** in select mode the page shows one cursor for the current action, overriding its own (no pointer or text cursors, since clicks select): an arrow by default, grab over the selected element, grabbing while dragging it, resize while resizing, and text while editing text in place.
 - **Presets:** Desktop 1440×900, Tablet 768×1024, Mobile 390×844, or a custom W×H.
-- **Snap:** the canvas toolbar offers Off, 4px and 8px (default); the app remembers the choice across projects and restarts. It rounds only free drop and move offsets inside the target container, and shows a faint dot grid while dragging. Size is unchanged; holding Shift still snaps to layout slots.
+- **Snap:** the canvas toolbar offers Off, 4px and 8px (default); the app remembers the choice across projects and restarts. It rounds only free drop and move offsets inside the target container, and shows a faint dot grid while dragging. Size is unchanged; holding Shift still snaps to layout slots. For a grid-snapped edit the brief gives the agent each offset as an exact Tailwind spacing value (`120px = 30`, with example classes) plus the space left to the right of and below the box, and tells it to use those values rather than approximate.
 - **Responsive scope** comes from the viewport width (a user decision):
   - width 1024 or more → `all`: the edit applies at every size
   - 768 to 1023 → `tablet-down`: written with Tailwind `max-lg:`
