@@ -58,3 +58,17 @@ test("a candidate in the wrong width container fails", () => {
   after.contentRect!.width = 250;
   expect(placementProblem(edit(), page(), after, 390)).toContain("no candidate was found in a container 300px wide");
 });
+
+test("of two identical moved elements, only the one the source says moved counts", () => {
+  const twin = (line: number, x: number): DomNode => ({ ...node("button", "Save", x), firstText: "Save", ref: { file: "src/App.tsx", line, col: 1, owners: [] } });
+  const move = { ...edit("move"), target: { file: "src/App.tsx", line: 5, col: 1, owners: [] } } as EditRecord;
+  const before = page(twin(5, 100), twin(9, 200));
+  // The agent rewrote line 5 (the element the user moved) and left line 9 alone.
+  const diff = "diff --git a/src/App.tsx b/src/App.tsx\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -5 +5 @@\n-<button>Save</button>\n+<button className=\"ml-2\">Save</button>\n";
+  expect(placementProblem(move, before, page(twin(5, 10), twin(9, 200)), 390, diff)).toBe("");
+  // Wrong twin at the target: the one on untouched line 9 is there, the moved one is not.
+  expect(placementProblem(move, before, page(twin(5, 100), twin(9, 10)), 390, diff)).toContain("closest match");
+  // Line 5 untouched (an ancestor was changed instead): the moved element is the one still on line 5.
+  expect(placementProblem(move, before, page(twin(5, 100), twin(9, 10)), 390, "")).toContain("closest match");
+  expect(placementProblem(move, before, page(twin(5, 10), twin(9, 200)), 390, "")).toBe("");
+});

@@ -125,7 +125,7 @@ pub fn diff_since_checkpoint(root: String, id: String) -> Result<CheckpointDiff,
     ensure_repo(&root)?;
     let r = checkpoint_ref(&id)?;
     let tree = snapshot_tree(&root)?;
-    let args = |extra: &str| git(&root, None, &["diff", "--relative", extra, &r, &tree, "--", "."]);
+    let args = |extra: &str| git(&root, None, &["diff", "--relative", "--src-prefix=a/", "--dst-prefix=b/", extra, &r, &tree, "--", "."]);
     let files = args("--name-only")?.lines().map(str::to_string).collect();
     Ok(CheckpointDiff { files, diff: args("--no-ext-diff")? })
 }

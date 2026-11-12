@@ -197,10 +197,11 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       if (req.tool === "edits_applied") {
         if (!runCheckpoints.current.length) return { diffShown: false };
         const open: string[] = [];
+        const diff = await sentDiff();
         for (const edit of appliedRef.current) {
           if (edit.kind !== "insert" && edit.kind !== "move") continue;
           const after = await askOverlay({ type: "request-snapshot", requestId: crypto.randomUUID() }) as DomNode;
-          const problem = placementProblem(edit, beforeRecords.current.get(edit.id), after, viewportRef.current.width);
+          const problem = placementProblem(edit, beforeRecords.current.get(edit.id), after, viewportRef.current.width, diff);
           if (problem) open.push(problem);
         }
         // Send it back to fix its placements twice; after that the user hears exactly what is still off rather than waiting forever.
@@ -217,7 +218,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
         const before = beforeRecords.current.get(edit.id);
         if (!before) return { error: "This check needs the edits to be sent from Divina." };
         const after = await askOverlay({ type: "request-snapshot", requestId }) as DomNode;
-        const problem = placementProblem(edit, before, after, viewportRef.current.width);
+        const problem = placementProblem(edit, before, after, viewportRef.current.width, await sentDiff());
         return { ok: !problem, ...(problem && { problem }) };
       }
       const frame = iframeRef.current?.getBoundingClientRect();
@@ -247,6 +248,12 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
     ]);
     post({ type: "preview-edit", record });
   }
+
+  /** What the agent changed since the last send, for following source lines; undefined when there is no checkpoint or git fails. */
+  const sentDiff = () => {
+    const cp = runCheckpoints.current[runCheckpoints.current.length - 1];
+    return cp ? api.diffSinceCheckpoint(root, cp).then((d) => d.diff, () => undefined) : Promise.resolve(undefined);
+  };
 
   async function showDiff() {
     const cp = runCheckpoints.current[runCheckpoints.current.length - 1];

@@ -1,11 +1,16 @@
 import type { DomNode, EditRecord } from "@/shared/protocol";
+import { followLine } from "./diffLines";
 
 type PageRecord = DomNode;
 const freeOf = (e: EditRecord) => e.kind === "insert" || e.kind === "move" ? e.payload.free : undefined;
 const signature = (n: DomNode) => JSON.stringify([n.tag, n.text ?? "", n.components ?? []]);
 const shown = (n: DomNode) => `<${n.tag}>${n.text ? ` "${n.text}"` : ""}`;
 
-export function placementProblem(edit: EditRecord, before: PageRecord | undefined, after: PageRecord, viewportWidth: number): string {
+/**
+ * Why a sent free edit is not in place on the `after` page; "" when it is. `diff` is the checkpoint
+ * diff, used to tell a moved element from an identical twin by following source lines.
+ */
+export function placementProblem(edit: EditRecord, before: PageRecord | undefined, after: PageRecord, viewportWidth: number, diff?: string): string {
   const free = freeOf(edit);
   if (!free) return "";
   if (edit.viewport.width !== viewportWidth) return `edit ${edit.id} was placed at a ${edit.viewport.width}px wide viewport but the preview is at ${viewportWidth}px, so it can't be checked`;
@@ -42,6 +47,20 @@ export function placementProblem(edit: EditRecord, before: PageRecord | undefine
   } else if (edit.kind === "move" && edit.payload?.moved) {
     const moved = edit.payload.moved;
     candidates = entries.filter(({ node }) => node.tag === moved.tag && (node.firstText ?? "") === moved.text && (!moved.components || !node.components || JSON.stringify(moved.components) === JSON.stringify(node.components)));
+    // Identical twins: the page alone can't say which one moved, the source can. Each element is tagged
+    // with its line, and the diff says where a line the agent left alone is now.
+    const { file, line } = edit.target;
+    if (candidates.length > 1 && file && diff !== undefined) {
+      const at = (f: string, l: number | null) => ({ node }: { node: DomNode }) => l !== null && node.ref?.file === f && node.ref.line === l;
+      const now = followLine(diff, file, line);
+      if (now !== null) candidates = candidates.filter(at(file, now));
+      else {
+        // Its own line was rewritten or moved: it is whichever twin is not still on an untouched twin's line.
+        const others = flatten(before).filter((n) => n.ref && n.tag === moved.tag && (n.firstText ?? "") === moved.text && !(n.ref.file === file && n.ref.line === line));
+        const stayed = others.map((n) => at(n.ref!.file, followLine(diff, n.ref!.file, n.ref!.line)));
+        candidates = candidates.filter((c) => !stayed.some((same) => same(c)));
+      }
+    }
   } else return "";
 
   if (!candidates.length) return `edit ${edit.id}: ${edit.kind === "insert" ? "no new element" : "no matching element"} was found`;
