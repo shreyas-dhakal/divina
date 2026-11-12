@@ -1,6 +1,7 @@
 import type { DomNode, EditRecord, HostToOverlay, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
 import { applyPreview, buildDomAnchor, getUserCodeTarget, resolveSourceRef } from "./overlay.js";
 import { pickDropSlot, type DropSlot } from "./slots.js";
+import { detectAlignment, type CrossAlignment } from "./align.js";
 
 const hostOrigin = (() => {
   try { return new URL(document.referrer).origin; } catch { return ""; }
@@ -50,7 +51,14 @@ const slotLabel = document.createElement("div");
 slotLabel.dataset.divinaUi = "true";
 slotLabel.style.cssText = "position:absolute;left:0;top:-21px;background:#7c3aed;color:white;padding:2px 5px;border-radius:3px;white-space:nowrap;font:12px/1.3 system-ui,sans-serif";
 containerHighlight.append(slotLabel);
-ui.append(outline, indicator, containerHighlight);
+const alignmentGuide = document.createElement("div");
+alignmentGuide.dataset.divinaUi = "true";
+alignmentGuide.style.cssText = "position:fixed;display:none;border-color:#d946ef;border-style:dashed;pointer-events:none;box-sizing:border-box";
+const alignmentLabel = document.createElement("div");
+alignmentLabel.dataset.divinaUi = "true";
+alignmentLabel.style.cssText = "position:absolute;background:#d946ef;color:white;padding:1px 4px;border-radius:3px;white-space:nowrap;font:10px/1.2 system-ui,sans-serif";
+alignmentGuide.append(alignmentLabel);
+ui.append(outline, indicator, containerHighlight, alignmentGuide);
 (document.documentElement ?? document.body).append(ui);
 
 function usable(element: Element | null): boolean {
@@ -72,13 +80,39 @@ function targetAt(x: number, y: number): Element | null {
 }
 function findSlot(x: number, y: number) { return pickDropSlot(x, y, usable, getUserCodeTarget); }
 function showSlot(slot: DropSlot | null) {
-  if (!slot) { indicator.style.display = "none"; containerHighlight.style.display = "none"; return; }
+  if (!slot) { indicator.style.display = "none"; containerHighlight.style.display = "none"; alignmentGuide.style.display = "none"; return; }
   const rect = slot.container.getBoundingClientRect();
   Object.assign(containerHighlight.style, { display: "block", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
   const firstClass = [...slot.container.classList].find((name) => !name.startsWith("data-"));
   slotLabel.textContent = `${slot.container.tagName.toLowerCase()}${firstClass ? `.${firstClass}` : ""} · ${slot.index + 1} of ${slot.total || 1} ${slot.axis === "row" ? "→" : "↓"}`;
   Object.assign(indicator.style, { left: `${slot.guide.x}px`, top: `${slot.guide.y}px`, width: `${slot.guide.width || 3}px`, height: `${slot.guide.height || 3}px` });
   indicator.style.display = "block";
+}
+function alignmentFor(slot: DropSlot, x: number, y: number): CrossAlignment | null {
+  return detectAlignment(contentRect(slot.container), slot.axis, { x, y }, getComputedStyle(slot.container).display.includes("flex"));
+}
+function contentRect(element: Element): Rect {
+  const rect = element.getBoundingClientRect();
+  const style = getComputedStyle(element);
+  const px = (value: string) => Number.parseFloat(value) || 0;
+  const left = px(style.borderLeftWidth) + px(style.paddingLeft);
+  const right = px(style.borderRightWidth) + px(style.paddingRight);
+  const top = px(style.borderTopWidth) + px(style.paddingTop);
+  const bottom = px(style.borderBottomWidth) + px(style.paddingBottom);
+  return { x: rect.left + left, y: rect.top + top, width: Math.max(0, rect.width - left - right), height: Math.max(0, rect.height - top - bottom) };
+}
+function showAlignment(slot: DropSlot | null, alignment: CrossAlignment | null) {
+  if (!slot || !alignment) { alignmentGuide.style.display = "none"; return; }
+  const rect = contentRect(slot.container);
+  const horizontal = slot.axis === "row";
+  const position = alignment === "start" ? (horizontal ? rect.y : rect.x) : alignment === "end" ? (horizontal ? rect.y + rect.height : rect.x + rect.width) : (horizontal ? rect.y + rect.height / 2 : rect.x + rect.width / 2);
+  Object.assign(alignmentGuide.style, horizontal
+    ? { display: "block", left: `${rect.x}px`, top: `${position}px`, width: `${rect.width}px`, height: "0", borderTopWidth: "1px" }
+    : { display: "block", left: `${position}px`, top: `${rect.y}px`, width: "0", height: `${rect.height}px`, borderLeftWidth: "1px" });
+  alignmentLabel.textContent = `self-${alignment}`;
+  Object.assign(alignmentLabel.style, horizontal
+    ? { left: "0", top: alignment === "start" ? "2px" : "-17px" }
+    : { left: "2px", top: "0" });
 }
 function snapshot(element: Element): DomNode {
   const text = element.children.length ? undefined : (element.textContent ?? "").trim().slice(0, 160) || undefined;
@@ -167,6 +201,7 @@ function onPointerUp(event: PointerEvent) {
 /** Host-driven drop of a library component at frame coords (pointer events never reach the iframe during a host drag). */
 function dropInsert(component: string, importFrom: string, x: number, y: number, library?: import("../../src/shared/protocol.ts").LibraryRef) {
   const slot = findSlot(x, y);
+  const align = slot ? alignmentFor(slot, x, y) : null;
   showSlot(null);
   if (!slot) return;
   const target = slot.anchor;
@@ -177,13 +212,14 @@ function dropInsert(component: string, importFrom: string, x: number, y: number,
   box.textContent = component;
   // Sized to its label, not the parent: a block div spans the whole row and misrepresents a Button.
   box.style.cssText = "display:inline-block;width:fit-content;align-self:flex-start;border:1px dashed #7c3aed;border-radius:6px;background:#7c3aed12;color:#6d28d9;padding:4px 12px;font:12px/1.5 system-ui";
+  if (align) box.style.alignSelf = align === "start" ? "flex-start" : align === "end" ? "flex-end" : "center";
   if (position.startsWith("inside")) slot.container.insertBefore(box, slot.container.firstChild);
   else target.parentNode?.insertBefore(box, position === "before" ? target : target.nextSibling);
   revert.push(() => box.remove());
-  if (anchor) send({ type: "edit", record: record("insert", anchor, { component, importFrom, anchor, position, ...(library ? { library } : {}) }) });
+  if (anchor) send({ type: "edit", record: record("insert", anchor, { component, importFrom, anchor, position, ...(align ? { align } : {}), ...(library ? { library } : {}) }) });
   else {
     const emptyTarget: SourceRef = { file: "", line: 0, col: 0, owners: [] };
-    send({ type: "edit", record: { ...record("insert", emptyTarget, { component, importFrom, anchor: emptyTarget, position, ...(library ? { library } : {}) }), dom: buildDomAnchor(target) } });
+    send({ type: "edit", record: { ...record("insert", emptyTarget, { component, importFrom, anchor: emptyTarget, position, ...(align ? { align } : {}), ...(library ? { library } : {}) }), dom: buildDomAnchor(target) } });
   }
 }
 function onClick(event: MouseEvent) {
@@ -221,7 +257,9 @@ function onDoubleClick(event: MouseEvent) {
   target.addEventListener("blur", finish);
 }
 function showInsertHover(x: number, y: number) {
-  showSlot(findSlot(x, y));
+  const slot = findSlot(x, y);
+  showSlot(slot);
+  showAlignment(slot, slot ? alignmentFor(slot, x, y) : null);
 }
 async function renderScreenshot(requestId: string) {
   const clone = document.documentElement.cloneNode(true) as HTMLElement;

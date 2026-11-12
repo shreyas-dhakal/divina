@@ -60,6 +60,14 @@ pub enum Position {
     InsideEnd,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InsertAlignment {
+    Start,
+    Center,
+    End,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InsertPayload {
@@ -67,6 +75,8 @@ pub struct InsertPayload {
     pub import_from: String,
     pub anchor: SourceRef,
     pub position: Position,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<InsertAlignment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library: Option<LibraryRef>,
 }
@@ -444,6 +454,9 @@ mod tests {
         roundtrip::<EditRecord>(json!({"id": "e1", "kind": "insert", "target": src, "viewport": vp,
             "scope": "mobile-down", "payload": {"component": "Button", "importFrom": "@/components/ui/button",
             "anchor": src, "position": "inside-end"}}));
+        roundtrip::<EditRecord>(json!({"id": "e5", "kind": "insert", "target": src, "viewport": vp,
+            "scope": "all", "payload": {"component": "Button", "importFrom": "x", "anchor": src,
+            "position": "after", "align": "center"}}));
         roundtrip::<EditRecord>(json!({"id": "e4", "kind": "insert",
             "target": {"file": "", "line": 0, "col": 0, "owners": []},
             "dom": {"selector": "main > h2", "tag": "h2", "text": "Our Services", "meta": "src/Home.svelte:4:1"},

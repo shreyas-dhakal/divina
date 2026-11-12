@@ -28,12 +28,14 @@ export interface Viewport {
 export type Scope = "all" | "tablet-down" | "mobile-down";
 
 export type Position = "before" | "after" | "inside-start" | "inside-end";
+export type InsertAlignment = "start" | "center" | "end";
 
 export interface InsertPayload {
   component: string;
   importFrom: string;
   anchor: SourceRef;
   position: Position;
+  align?: InsertAlignment;
   /** Set when the component comes from the catalog; the agent installs the library if missing. */
   library?: LibraryRef;
 }
