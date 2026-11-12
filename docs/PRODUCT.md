@@ -66,7 +66,13 @@ Three resizable columns:
 
 #### Frame and viewport
 
-- **One frame** shows the running app through Divina's proxy at an exact viewport. It's scaled down to fit and never scaled up.
+- **One frame** shows the running app through Divina's proxy at an exact viewport. It starts fitted to the pane (never scaled up).
+  - **Canvas, like Figma or Illustrator:** the frame sits on a free canvas you can pan and zoom past its edges.
+    - **Zoom:** pinch or ⌘/Ctrl+scroll zooms around the pointer, over the page or the canvas (the overlay forwards gestures from inside the page as `zoom`). ⌘+ and ⌘− step through 10% to 400%; ⌘0 or ⇧1 fits and centres; ⌘1 or ⇧0 is 100%. The toolbar's − / % / + control does the same, and clicking the percentage toggles fit and 100%. Changing the viewport size fits again.
+    - **Pan:** two-finger scroll over the grey canvas, middle-drag on the grey canvas (over the page the page gets it), or hold Space (or pick the Hand tool, H) and drag, with grab and grabbing cursors. While panning, a cover over the frame keeps the page from taking the pointer. V returns to Select. Over the page itself, plain scrolling still scrolls the page.
+    - **Keys inside the page:** the overlay forwards Space, ⌘+/−/0/1, ⇧0/1 and V/H (`canvas-key`, by `KeyboardEvent.code`) unless a text field or in-place text edit has focus. On the host they're ignored in text fields and the terminal.
+    - While part of the frame is out of view, `screenshot_frame` uses the in-page capture.
+  - **Cursor:** in select mode the page shows one cursor for the current action, overriding its own (no pointer or text cursors, since clicks select): an arrow by default, grab over the selected element, grabbing while dragging it, resize while resizing, and text while editing text in place.
 - **Presets:** Desktop 1440×900, Tablet 768×1024, Mobile 390×844, or a custom W×H.
 - **Responsive scope** comes from the viewport width (a user decision):
   - width 1024 or more → `all`: the edit applies at every size

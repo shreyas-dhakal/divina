@@ -206,6 +206,8 @@ pub enum OverlayToHost {
     Edit { record: EditRecord },
     DiscardEdit { id: String },
     Drag { state: DragState },
+    Zoom { factor: f64, x: f64, y: f64 },
+    CanvasKey { code: String, down: bool, meta: bool, shift: bool },
     DomSnapshot { request_id: String, root: DomNode },
     ConsoleError {
         message: String,
@@ -504,6 +506,8 @@ mod tests {
         roundtrip::<OverlayToHost>(json!({"type": "hover", "ref": null, "rect": null}));
         roundtrip::<OverlayToHost>(json!({"type": "discard-edit", "id": "e1"}));
         roundtrip::<OverlayToHost>(json!({"type": "drag", "state": "over-trash"}));
+        roundtrip::<OverlayToHost>(json!({"type": "zoom", "factor": 1.1, "x": 10.0, "y": 20.0}));
+        roundtrip::<OverlayToHost>(json!({"type": "canvas-key", "code": "Space", "down": true, "meta": false, "shift": false}));
         roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Card", "importFrom": "x", "x": 10.5, "y": 20.0}));
         roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Button", "importFrom": "thaw", "x": 1.0, "y": 2.0,
             "library": {"id": "thaw", "name": "Thaw", "install": "cargo add thaw", "usage": "<Button/>"}}));

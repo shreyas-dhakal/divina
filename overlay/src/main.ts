@@ -4,6 +4,7 @@ import { measureGaps, spacingLabel } from "./guides.js";
 import { pickDropSlot, type DropSlot } from "./slots.js";
 import { detectAlignment, type CrossAlignment } from "./align.js";
 import { zoneAt, zoneName, zoneOffset } from "./zones.js";
+import { CANVAS_KEYS } from "../../src/shared/protocol.ts";
 
 const hostOrigin = (() => {
   try { return new URL(document.referrer).origin; } catch { return ""; }
@@ -69,6 +70,19 @@ zoneGuide.style.cssText = "position:fixed;display:none;grid-template:repeat(3,1f
 for (let i = 0; i < 9; i++) zoneGuide.append(Object.assign(document.createElement("div"), { style: "border:1px dashed #7c3aed40" }));
 ui.append(outline, indicator, containerHighlight, spacing, alignmentGuide, zoneGuide);
 (document.documentElement ?? document.body).append(ui);
+// In select mode clicks select rather than activate, so the page's own cursors (pointer on links,
+// text on inputs) would mislead; one cursor for the whole page follows the current action instead.
+const cursorStyle = document.createElement("style");
+cursorStyle.dataset.divinaUi = "true";
+cursorStyle.textContent = `html[data-divina-cursor], html[data-divina-cursor] :not([data-divina-ui]) { cursor: var(--divina-cursor) !important }
+html[data-divina-cursor] [contenteditable="true"] { cursor: text !important }`;
+ui.append(cursorStyle);
+function setCursor(cursor: string | null) {
+  const root = document.documentElement;
+  if (root.style.getPropertyValue("--divina-cursor") === (cursor ?? "")) return;
+  if (cursor) { root.dataset.divinaCursor = ""; root.style.setProperty("--divina-cursor", cursor); }
+  else { delete root.dataset.divinaCursor; root.style.removeProperty("--divina-cursor"); }
+}
 
 function usable(element: Element | null): boolean {
   return !!element && element !== document.documentElement && element !== document.body && !ui.contains(element) && !element.closest("[data-divina-ui], [data-divina-placeholder]");
@@ -241,6 +255,7 @@ function lift(element: Element) {
   Object.assign(clone.style, { position: "fixed", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, margin: "0", boxSizing: "border-box", pointerEvents: "none", opacity: "0.85", boxShadow: "0 8px 24px #0003", transition: "none" });
   ui.append(clone);
   follower = { clone, element, opacity: element.style.opacity };
+  setCursor("grabbing");
   element.style.opacity = "0.3";
 }
 function land() {
@@ -248,6 +263,7 @@ function land() {
   follower.clone.remove();
   follower.element.style.opacity = follower.opacity;
   follower = null;
+  setCursor("grab");
 }
 let dragState: "idle" | "moving" | "over-trash" = "idle";
 function setDragState(state: typeof dragState) {
@@ -280,6 +296,8 @@ function onPointerMove(event: PointerEvent) {
   }
   if (mode !== "select") return;
   hovered = targetAt(event.clientX, event.clientY);
+  const over = event.target as Node;
+  setCursor(selected && (selected === over || selected.contains(over)) && !(selected as HTMLElement).isContentEditable ? "grab" : "default");
   updateOutline(selected ?? hovered);
   send({ type: "hover", ref: hovered ? resolveSourceRef(hovered) : null, rect: hovered ? rectOf(hovered) : null });
 }
@@ -288,6 +306,7 @@ function onPointerDown(event: PointerEvent) {
   if (event.target === handles && selected instanceof HTMLElement) {
     const rect = selected.getBoundingClientRect();
     resize = { element: selected, x: event.clientX, y: event.clientY, width: rect.width, height: rect.height, old: selected.getAttribute("style") ?? "" };
+    setCursor("nwse-resize");
     event.preventDefault();
     return;
   }
@@ -310,6 +329,7 @@ function onPointerUp(event: PointerEvent) {
       send({ type: "edit", record: record("resize", ref, { props: { width: `${width}px`, height: `${height}px` } }) });
     } else current.element.setAttribute("style", current.old);
     resize = null;
+    setCursor("default");
   }
   if (drag) {
     const current = drag;
@@ -466,7 +486,7 @@ function receive(event: MessageEvent<HostToOverlay>) {
   switch (message.type) {
     case "set-mode":
       mode = message.mode;
-      document.documentElement.style.cursor = mode === "select" ? "crosshair" : "";
+      setCursor(mode === "select" ? "default" : null);
       if (mode !== "select") updateOutline(null);
       else updateOutline(selected);
       break;
@@ -511,6 +531,27 @@ document.addEventListener("pointerup", onPointerUp);
 document.addEventListener("click", onClick, true);
 document.addEventListener("dblclick", onDoubleClick);
 document.addEventListener("keydown", onKeyDown);
+// Canvas zoom gestures and shortcuts belong to the host; the page would scroll or zoom itself.
+document.addEventListener("wheel", (event) => {
+  if (!event.ctrlKey && !event.metaKey) return;
+  event.preventDefault();
+  send({ type: "zoom", factor: Math.exp(-event.deltaY * 0.01), x: event.clientX, y: event.clientY });
+}, { passive: false });
+let gestureScale = 1;
+for (const type of ["gesturestart", "gesturechange"]) document.addEventListener(type, (event) => {
+  const gesture = event as Event & { scale: number; clientX: number; clientY: number };
+  event.preventDefault();
+  if (type === "gesturechange") send({ type: "zoom", factor: gesture.scale / gestureScale, x: gesture.clientX, y: gesture.clientY });
+  gestureScale = type === "gesturestart" ? 1 : gesture.scale;
+});
+// The host maps these to actions; Space and ⌘ combos would otherwise scroll or zoom the page.
+for (const type of ["keydown", "keyup"] as const) document.addEventListener(type, (event) => {
+  const at = event.target as HTMLElement;
+  if (!CANVAS_KEYS.includes(event.code) || event.altKey || at.isContentEditable || at.closest?.("input, textarea, select")) return;
+  const meta = event.metaKey || event.ctrlKey;
+  if (event.code === "Space" || meta) event.preventDefault();
+  if (!event.repeat) send({ type: "canvas-key", code: event.code, down: type === "keydown", meta, shift: event.shiftKey });
+});
 window.addEventListener("resize", () => updateOutline(selected));
 const originalError = console.error.bind(console);
 console.error = (...args: unknown[]) => {

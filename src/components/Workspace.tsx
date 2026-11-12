@@ -169,7 +169,10 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       }
       if (req.tool === "get_dom_snapshot") return askOverlay({ type: "request-snapshot", requestId });
       const frame = iframeRef.current?.getBoundingClientRect();
-      if (frame) {
+      // The native capture grabs what's on screen, so a zoomed frame partly scrolled away uses the in-page capture.
+      const canvas = iframeRef.current?.closest("[data-canvas]")?.getBoundingClientRect();
+      const visible = frame && canvas && frame.left >= canvas.left && frame.top >= canvas.top && frame.right <= canvas.right && frame.bottom <= canvas.bottom;
+      if (frame && visible) {
         try {
           return { dataUrl: await api.snapshotFrame(frame, viewportRef.current.width) };
         } catch (e) {

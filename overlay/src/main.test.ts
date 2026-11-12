@@ -195,6 +195,32 @@ describe("untagged library insert", () => {
   });
 });
 
+describe("canvas cursor and zoom", () => {
+  it("shows grab over the selection and forwards zoom gestures to the host", async () => {
+    const sent: { type: string }[] = [];
+    window.parent.postMessage = ((message: never) => sent.push(message)) as typeof window.parent.postMessage;
+    await import("./main.js");
+    window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data: { type: "set-mode", mode: "select" } }));
+    const cursor = () => document.documentElement.style.getPropertyValue("--divina-cursor");
+    expect(cursor()).toBe("default");
+    document.body.innerHTML = `<h2 data-divina-src="src/App.tsx:9:3">Title</h2>`;
+    const h2 = document.querySelector("h2")!;
+    h2.click();
+    h2.dispatchEvent(new MouseEvent("pointermove", { bubbles: true }));
+    expect(cursor()).toBe("grab");
+    const wheel = new WheelEvent("wheel", { ctrlKey: true, deltaY: -10, clientX: 5, clientY: 6, cancelable: true });
+    document.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(true);
+    expect(sent).toContainEqual({ type: "zoom", factor: Math.exp(0.1), x: 5, y: 6 });
+    const space = new KeyboardEvent("keydown", { code: "Space", cancelable: true });
+    document.dispatchEvent(space);
+    expect(space.defaultPrevented).toBe(true);
+    expect(sent).toContainEqual({ type: "canvas-key", code: "Space", down: true, meta: false, shift: false });
+    document.dispatchEvent(new KeyboardEvent("keyup", { code: "Space" }));
+    expect(sent).toContainEqual({ type: "canvas-key", code: "Space", down: false, meta: false, shift: false });
+  });
+});
+
 describe("optimistic Properties preview", () => {
   const target = { file: "src/App.tsx", line: 7, col: 9, owners: [] };
   const viewport = { preset: "mobile" as const, width: 390, height: 844 };

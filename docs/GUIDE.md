@@ -53,6 +53,7 @@ You can change all of this later from **Run command…** under the preview.
 
 ## 4. Edit visually
 
+- **Zoom and pan** like Figma: pinch or ⌘-scroll to zoom, ⌘+ / ⌘− to step, ⇧1 to fit, ⇧0 for 100%. Two-finger scroll on the grey canvas, hold Space and drag, or middle-drag on the grey canvas to pan. H picks the Hand tool and V goes back to Select (also in the toolbar).
 - **Size:** pick Desktop, Tablet, Mobile or a custom size in the toolbar. Edits at Desktop apply everywhere. Edits at Tablet or Mobile apply at that size and smaller.
 - **Click** an element to select it. **Drag** it to move it; the purple line shows where it will land.
 - **Resize** with the corner handle, and **double-click** text to edit it.

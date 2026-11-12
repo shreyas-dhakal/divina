@@ -131,6 +131,10 @@ export type OverlayToHost =
   | { type: "discard-edit"; id: string }
   /** Canvas drag of a selected element; the host shows the trash zone unless idle. */
   | { type: "drag"; state: "idle" | "moving" | "over-trash" }
+  /** Pinch or ⌘/Ctrl+scroll inside the page: zoom the canvas by `factor` around frame point x/y. */
+  | { type: "zoom"; factor: number; x: number; y: number }
+  /** A canvas shortcut key (CANVAS_KEYS) pressed or released while the page has focus; `meta` is ⌘ or Ctrl. */
+  | { type: "canvas-key"; code: string; down: boolean; meta: boolean; shift: boolean }
   | { type: "dom-snapshot"; requestId: string; root: DomNode }
   | { type: "console-error"; message: string; stack?: string }
   | { type: "screenshot-request"; requestId: string }
@@ -288,5 +292,8 @@ export interface McpServerInfo {
  * site through, so the usage site wins. OWNERS_ATTR: space-separated "file:line:col"
  * usage sites of the owning components, innermost first. Parse from the right (paths may hold ":").
  */
+/** `KeyboardEvent.code`s the overlay forwards for canvas shortcuts (Space pans, zoom, V/H tools). */
+export const CANVAS_KEYS = ["Space", "Equal", "Minus", "Digit0", "Digit1", "KeyV", "KeyH"];
+
 export const SRC_ATTR = "data-divina-src";
 export const OWNERS_ATTR = "data-divina-owners";
