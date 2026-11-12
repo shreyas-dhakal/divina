@@ -56,6 +56,7 @@ You can change all of this later from **Run command…** under the preview.
 - **Zoom and pan** like Figma: pinch or ⌘-scroll to zoom, ⌘+ / ⌘− to step, ⇧1 to fit, ⇧0 for 100%. Two-finger scroll on the grey canvas, hold Space and drag, or middle-drag on the grey canvas to pan. H picks the Hand tool and V goes back to Select (also in the toolbar).
 - **Focus mode:** hide the side panels with the panel buttons at the ends of the canvas toolbar, or press ⌘\ to hide or show both.
 - **Size:** pick Desktop, Tablet, Mobile or a custom size in the toolbar. Edits at Desktop apply everywhere. Edits at Tablet or Mobile apply at that size and smaller.
+- **Snap grid:** choose Off, 4px or 8px in the canvas toolbar (8px by default). The choice is remembered app-wide. Free drops and moves round their offsets to that grid and show faint dots while dragging; size is unchanged. Shift still snaps into a layout slot.
 - **Click** an element to select it. **Drag** it to move it: it stays where you let go, like in Figma. Hold **Shift** while dragging to snap it into the page layout instead; the purple line shows where it will land. Your agent then turns the position into real layout code (spacing and alignment, never absolute positioning), so the final result can sit slightly differently.
 - **Resize** with the corner handle, and **double-click** text to edit it.
 - **Delete:** drag a selected element to the red trash button that appears in the bottom-right corner of the preview area, or press Delete. This also removes a component you dropped from the library before you send it.

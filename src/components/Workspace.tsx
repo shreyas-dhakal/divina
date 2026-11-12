@@ -58,6 +58,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   const { root } = project;
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [viewport, setViewport] = useState(PRESETS[0]);
+  const [snapStep, setSnapStepState] = useState(() => Number(localStorage.getItem("divina-snap-step") ?? 8));
   const scope = scopeFor(viewport);
   const [url, setUrl] = useState<string | null>(null);
   const [frameError, setFrameError] = useState("");
@@ -103,6 +104,12 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   const pending = useRef(new Map<string, (value: unknown) => void>());
 
   const post = (msg: HostToOverlay) => iframeRef.current?.contentWindow?.postMessage(msg, "*");
+  const setSnapStep = (step: number) => {
+    localStorage.setItem("divina-snap-step", String(step));
+    setSnapStepState(step);
+    post({ type: "set-snap-step", snapStep: step });
+  };
+  useEffect(() => { post({ type: "set-snap-step", snapStep }); }, [snapStep, url]);
 
   const connect = () => {
     setFrameError("");
@@ -151,7 +158,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       else if (msg.type === "edit") {
         const vp = viewportRef.current;
         setEdits((q) => [...q, { ...msg.record, viewport: vp, scope: scopeFor(vp) }]);
-      } else if (msg.type === "drag") setCanvasDrag(msg.state);
+      } else if (msg.type === "drag") { post({ type: "set-snap-step", snapStep }); setCanvasDrag(msg.state); }
       else if (msg.type === "discard-edit") setEdits((q) => q.filter((e) => e.id !== msg.id));
       else if (msg.type === "dom-snapshot") pending.current.get(msg.requestId)?.(msg.root);
       else if (msg.type === "screenshot-response") pending.current.get(msg.requestId)?.({ dataUrl: msg.dataUrl });
@@ -323,18 +330,20 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
               onRetry={info.run ? connect : () => setSetupOpen(true)}
               viewport={viewport}
               setViewport={setViewport}
+              snapStep={snapStep}
+              setSnapStep={setSnapStep}
               iframeRef={iframeRef}
               dragging={!!dragging}
               canvasDrag={canvasDrag}
               sidebars={sidebars}
               onToggleSidebar={toggleSidebar}
               onTrashZone={(rect) => post({ type: "trash-zone", rect })}
-              onHover={({ x, y, free }) => post({ type: "insert-hover", x, y, ...(free && { free }), ...(dragging && { component: dragging.name, ...views(dragging) }) })}
+              onHover={({ x, y, free }) => post({ type: "insert-hover", x, y, ...(free && { free }), snapStep, ...(dragging && { component: dragging.name, ...views(dragging) }) })}
               onDrop={(c, x, y, free) => {
                 setDragging(null);
                 // Catalog cards carry `library`; project components don't, so their payload is unchanged.
                 const { library } = c as LibraryComponent & { library?: LibraryRef };
-                post({ type: "preview-insert", component: c.name, importFrom: c.importFrom, x, y, ...(library && { library }), ...(dragging && views(dragging)), ...(free && { free }) });
+                post({ type: "preview-insert", component: c.name, importFrom: c.importFrom, x, y, ...(library && { library }), ...(dragging && views(dragging)), ...(free && { free }), snapStep });
               }}
             />
           </div>

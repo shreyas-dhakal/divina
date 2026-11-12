@@ -36,7 +36,7 @@ export interface InsertPlace { x: InsertAlignment; y: InsertAlignment }
  * Free placement: where the user put the element, as its box inside the content box of the container
  * it was dropped on (px, at the edit's viewport). The agent reproduces it with layout, not positioning.
  */
-export interface FreePlace { x: number; y: number; width: number; height: number; containerWidth: number; containerHeight: number }
+export interface FreePlace { x: number; y: number; width: number; height: number; containerWidth: number; containerHeight: number; snapStep?: number }
 
 export interface InsertPayload {
   component: string;
@@ -165,9 +165,10 @@ export type HostToOverlay =
    * the component (data URL) shown when it can't render. With neither, a labelled pill. `free`: the
    * component lands exactly at x/y (the default in the app); without it, it snaps to a layout slot (Shift).
    */
-  | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number; library?: LibraryRef; live?: string; image?: string; free?: boolean }
+  | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number; library?: LibraryRef; live?: string; image?: string; free?: boolean; snapStep?: number }
   /** Host drag in progress over the frame: show the component under x/y (frame coords), or at its slot. */
-  | { type: "insert-hover"; x: number; y: number; component?: string; live?: string; image?: string; free?: boolean }
+  | { type: "insert-hover"; x: number; y: number; component?: string; live?: string; image?: string; free?: boolean; snapStep?: number }
+  | { type: "set-snap-step"; snapStep: number }
   /** Optimistic preview of a Properties edit on the element at record.target; reverted by clear-optimistic. */
   | { type: "preview-edit"; record: EditRecord }
   | { type: "clear-optimistic" }

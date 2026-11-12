@@ -1,5 +1,5 @@
 import type { DomAnchor, DomNode, EditRecord, FreePlace, HostToOverlay, InsertPayload, InsertPlace, LibraryRef, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
-import { applyPreview, buildDomAnchor, componentName, getUserCodeTarget, resolveSourceRef } from "./overlay.js";
+import { applyPreview, buildDomAnchor, componentName, getUserCodeTarget, resolveSourceRef, snapOffset } from "./overlay.js";
 import { measureGaps, spacingLabel } from "./guides.js";
 import { pickDropSlot, type DropSlot } from "./slots.js";
 import { detectAlignment, type CrossAlignment } from "./align.js";
@@ -10,6 +10,7 @@ const hostOrigin = (() => {
   try { return new URL(document.referrer).origin; } catch { return ""; }
 })();
 let mode: OverlayMode = "off";
+let snapStep = 8;
 let selected: Element | null = null;
 let hovered: Element | null = null;
 let trustedOrigin = hostOrigin;
@@ -69,6 +70,10 @@ zoneGuide.dataset.divinaUi = "true";
 zoneGuide.style.cssText = "position:fixed;display:none;grid-template:repeat(3,1fr)/repeat(3,1fr);pointer-events:none";
 for (let i = 0; i < 9; i++) zoneGuide.append(Object.assign(document.createElement("div"), { style: "border:1px dashed #7c3aed40" }));
 ui.append(outline, indicator, containerHighlight, spacing, alignmentGuide, zoneGuide);
+const snapGuide = document.createElement("div");
+snapGuide.dataset.divinaUi = "true";
+snapGuide.style.cssText = "position:fixed;display:none;pointer-events:none;z-index:1";
+ui.append(snapGuide);
 (document.documentElement ?? document.body).append(ui);
 // In select mode clicks select rather than activate, so the page's own cursors (pointer on links,
 // text on inputs) would mislead; one cursor for the whole page follows the current action instead.
@@ -287,7 +292,12 @@ function hoverAt(x: number, y: number, free = false): Hover | null {
 function freeAt(element: Element, container: Element): FreePlace {
   const r = element.getBoundingClientRect();
   const box = contentRect(container);
-  return { x: Math.round(r.left - box.x), y: Math.round(r.top - box.y), width: Math.round(r.width), height: Math.round(r.height), containerWidth: Math.round(box.width), containerHeight: Math.round(box.height) };
+  return { x: snapOffset(Math.round(r.left - box.x), snapStep), y: snapOffset(Math.round(r.top - box.y), snapStep), width: Math.round(r.width), height: Math.round(r.height), containerWidth: Math.round(box.width), containerHeight: Math.round(box.height), ...(snapStep > 0 && { snapStep }) };
+}
+function showSnapGrid(container: Element | null) {
+  if (!container || snapStep <= 0) { snapGuide.style.display = "none"; return; }
+  const box = contentRect(container);
+  Object.assign(snapGuide.style, { display: "block", left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`, height: `${box.height}px`, backgroundImage: "radial-gradient(#64748b55 1px, transparent 1px)", backgroundSize: `${snapStep}px ${snapStep}px` });
 }
 /** Freely placed placeholders: out of the flow on the body, at an offset in their container's content box. */
 const pins = new WeakMap<Element, { container: Element; x: number; y: number }>();
@@ -478,10 +488,11 @@ function onPointerMove(event: PointerEvent) {
       lift(drag.element);
     }
     if (follower) follower.clone.style.transform = `translate(${event.clientX - drag.x}px, ${event.clientY - drag.y}px)`;
-    if (overTrash(event.clientX, event.clientY)) { setDragState("over-trash"); drag.slot = null; showSlot(null); return; }
+    if (overTrash(event.clientX, event.clientY)) { setDragState("over-trash"); drag.slot = null; showSlot(null); showSnapGrid(null); return; }
     setDragState("moving");
     // Free by default: the element lands where it is released. Shift snaps it into a layout slot.
-    const slot = event.shiftKey ? findSlot(event.clientX, event.clientY) : null;
+    const slot = event.shiftKey ? findSlot(event.clientX, event.clientY) : freeSlot(event.clientX, event.clientY);
+    showSnapGrid(!event.shiftKey && snapStep > 0 ? slot?.container ?? null : null);
     if (slot && slot.container !== drag.element && !drag.element.contains(slot.container)) { drag.slot = slot; showSlot(slot); }
     else { drag.slot = null; showSlot(null); }
     return;
@@ -530,6 +541,7 @@ function onPointerUp(event: PointerEvent) {
     land();
     if (trashed) { selected = current.element; deleteSelected(); return; }
     const finalSlot = (event.shiftKey ? findSlot : freeSlot)(event.clientX, event.clientY);
+    showSnapGrid(null);
     current.slot = finalSlot && finalSlot.container !== current.element && !current.element.contains(finalSlot.container) ? finalSlot : null;
     showSlot(null);
     const slot = current.slot;
@@ -565,7 +577,7 @@ function moveFreely(element: HTMLElement, slot: DropSlot | null, dx: number, dy:
   if (drop) {
     const r = element.getBoundingClientRect();
     const box = contentRect(container);
-    pins.set(element, { container, x: r.left + dx - box.x, y: r.top + dy - box.y });
+    pins.set(element, { container, x: snapOffset(r.left + dx - box.x, snapStep), y: snapOffset(r.top + dy - box.y, snapStep) });
     pin(element);
     // Same id, so the host's queue keeps one insert for this placeholder.
     const { component, importFrom, library } = drop.payload;
@@ -577,10 +589,13 @@ function moveFreely(element: HTMLElement, slot: DropSlot | null, dx: number, dy:
     const before = element.style.translate;
     const was = shifts.get(element);
     const total = { x: (was?.x ?? 0) + dx, y: (was?.y ?? 0) + dy };
-    element.style.translate = `${total.x}px ${total.y}px`;
+    const box = contentRect(container);
+    const rect = element.getBoundingClientRect();
+    const snapped = { x: total.x + snapOffset(rect.left + dx - box.x, snapStep) - (rect.left + dx - box.x), y: total.y + snapOffset(rect.top + dy - box.y, snapStep) - (rect.top + dy - box.y) };
+    element.style.translate = `${snapped.x}px ${snapped.y}px`;
     const anchor = slot ? through(slot.anchor, slot.position) : element;
     const move = edit("move", element, { anchor: targetOf(anchor).target, position: slot?.position ?? "after", free: freeAt(element, container) });
-    shifts.set(element, { ...total, id: move.id });
+    shifts.set(element, { ...snapped, id: move.id });
     revert.push(() => { element.style.translate = before; shifts.delete(element); });
     if (was) send({ type: "discard-edit", id: was.id });
     send({ type: "edit", record: move });
@@ -598,13 +613,16 @@ function insertRecord(payload: Omit<InsertPayload, "anchor" | "position">, slot:
   return { ...record("insert", target, full), ...(dom ? { dom } : {}) } as Extract<EditRecord, { kind: "insert" }>;
 }
 /** Host-driven drop of a library component at frame coords (pointer events never reach the iframe during a host drag). */
-function dropInsert(component: string, importFrom: string, x: number, y: number, library?: LibraryRef, live?: string, image?: string, free?: boolean) {
+function dropInsert(component: string, importFrom: string, x: number, y: number, library?: LibraryRef, live?: string, image?: string, free?: boolean, step?: number) {
+  if (step !== undefined) snapStep = step;
   const hover = hoverAt(x, y, free);
   const align = hover && !hover.free && !hover.zone && !hover.slot.beside ? alignmentFor(hover.slot, x, y) : null;
   // The ghost goes to the drop point and stays there as the placeholder, so what was dragged is what lands.
   showGhost(hover, align, component, live, image);
+  snapFloatingGhost(hover, x, y);
   showSlot(null);
   showZones(document.body, null);
+  showSnapGrid(null);
   spacing.replaceChildren();
   if (!hover || !ghost) return;
   const box = ghost.element;
@@ -687,16 +705,26 @@ function onDoubleClick(event: MouseEvent) {
   };
   target.addEventListener("blur", finish);
 }
-function showInsertHover(x: number, y: number, component?: string, live?: string, image?: string, free?: boolean) {
+function showInsertHover(x: number, y: number, component?: string, live?: string, image?: string, free?: boolean, step?: number) {
+  if (step !== undefined) snapStep = step;
+  if (x < 0 || y < 0) { showSnapGrid(null); showGhost(null); showSlot(null); showZones(document.body, null); return; }
   const hover = hoverAt(x, y, free);
+  showSnapGrid(free && snapStep > 0 ? hover?.slot.container ?? null : null);
   const align = hover && !hover.free && !hover.zone && !hover.slot.beside ? alignmentFor(hover.slot, x, y) : null;
   showGhost(hover, align, component, live, image);
+  snapFloatingGhost(hover, x, y);
   showSlot(hover?.slot ?? null);
   // The ghost marks the spot; the slot line was measured before the ghost reflowed its siblings.
   indicator.style.display = "none";
   if (hover?.zone) slotLabel.textContent = slotLabel.textContent!.replace(/ · .*/, ` · ${zoneName(hover.zone)}`);
   if (hover?.free && ghost) { const at = freeAt(ghost.element, hover.slot.container); slotLabel.textContent = slotLabel.textContent!.replace(/ · .*/, ` · ${at.x}, ${at.y}`); }
   showAlignment(hover?.slot ?? null, align);
+}
+function snapFloatingGhost(hover: Hover | null, x: number, y: number) {
+  if (!hover?.free || !ghost || snapStep <= 0) return;
+  const box = contentRect(hover.slot.container);
+  const size = ghost.element.getBoundingClientRect();
+  float(ghost.element, { x: box.x + snapOffset(x - box.x - size.width / 2, snapStep) + size.width / 2, y: box.y + snapOffset(y - box.y - size.height / 2, snapStep) + size.height / 2 });
 }
 async function renderScreenshot(requestId: string) {
   const clone = document.documentElement.cloneNode(true) as HTMLElement;
@@ -731,11 +759,12 @@ function receive(event: MessageEvent<HostToOverlay>) {
       else updateOutline(selected);
       break;
     case "insert-hover":
-      showInsertHover(message.x, message.y, message.component, message.live, message.image, message.free);
+      showInsertHover(message.x, message.y, message.component, message.live, message.image, message.free, message.snapStep);
       break;
     case "preview-insert":
-      dropInsert(message.component, message.importFrom, message.x, message.y, message.library, message.live, message.image, message.free);
+      dropInsert(message.component, message.importFrom, message.x, message.y, message.library, message.live, message.image, message.free, message.snapStep);
       break;
+    case "set-snap-step": snapStep = message.snapStep; break;
     case "preview-edit": {
       const { file, line, col } = message.record.target;
       const at = `${file}:${line}:${col}`;
