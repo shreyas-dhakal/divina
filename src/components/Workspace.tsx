@@ -162,6 +162,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       else if (msg.type === "discard-edit") setEdits((q) => q.filter((e) => e.id !== msg.id));
       else if (msg.type === "dom-snapshot") pending.current.get(msg.requestId)?.(msg.root);
       else if (msg.type === "screenshot-response") pending.current.get(msg.requestId)?.({ dataUrl: msg.dataUrl });
+      else if (msg.type === "measure-response") pending.current.get(msg.requestId)?.(msg.error ? { error: msg.error } : { ...msg.place, matches: msg.matches, viewportWidth: viewportRef.current.width });
       else if (msg.type === "console-error") {
         consoleErrors.current = [...consoleErrors.current.slice(-99), msg.message];
         setLogs((l) => [...l, `[frame] ${msg.message}`]);
@@ -198,6 +199,11 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
         return { diffShown: true };
       }
       if (req.tool === "get_dom_snapshot") return askOverlay({ type: "request-snapshot", requestId });
+      if (req.tool === "measure_placement") {
+        const { selector, container } = req.arguments;
+        if (typeof selector !== "string" || !selector) return { error: "selector is required" };
+        return askOverlay({ type: "measure-request", requestId, selector, ...(typeof container === "string" && container && { container }) });
+      }
       const frame = iframeRef.current?.getBoundingClientRect();
       // The native capture grabs what's on screen, so a zoomed frame partly scrolled away uses the in-page capture.
       const canvas = iframeRef.current?.closest("[data-canvas]")?.getBoundingClientRect();

@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 
 export interface McpRequest {
   id: string;
-  tool: "get_pending_edits" | "screenshot_frame" | "get_dom_snapshot" | "get_console_errors" | "edits_applied";
+  tool: "get_pending_edits" | "screenshot_frame" | "get_dom_snapshot" | "get_console_errors" | "measure_placement" | "edits_applied";
   arguments: Record<string, unknown>;
 }
 

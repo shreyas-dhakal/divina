@@ -123,18 +123,18 @@ pub(crate) fn build_prompt(root: &Path, edits: &[EditRecord]) -> String {
         if let Some(f) = free {
             // The grid step is a multiple of 4px, so snapped offsets are whole Tailwind spacing units: hand the agent the units, not arithmetic.
             let snapped = f.snap_step.map(|step| format!(
-                " The offsets were snapped to a {step}px grid, so they are exact Tailwind spacing values (4px = 1 unit): left {}px = {} (e.g. `ml-{}`, `pl-{}` or `gap-{}`), top {}px = {} (e.g. `mt-{}`, `pt-{}` or `gap-{}`). That leaves {}px to the right of the box and {}px below it. Use these exact values, not approximations.",
-                f.x, f.x / 4.0, f.x / 4.0, f.x / 4.0, f.x / 4.0, f.y, f.y / 4.0, f.y / 4.0, f.y / 4.0, f.y / 4.0,
-                f.container_width - f.x - f.width, f.container_height - f.y - f.height
+                " The offsets were snapped to a {step}px grid, so they are exact Tailwind spacing values (4px = 1 unit): left {}px = {lx}, top {}px = {ty}. Carry them with `gap`, the container's padding or a margin, whichever the surrounding layout already uses (e.g. `gap-{lx}`, `pl-{lx}`, `ml-{lx}`; `gap-{ty}`, `pt-{ty}`, `mt-{ty}`); on Tailwind v3 write a value missing from its scale as `ml-[{}px]`. That leaves {}px to the right of the box and {}px below it. Use these exact values, not approximations.",
+                f.x, f.y, f.x, f.container_width - f.x - f.width, f.container_height - f.y - f.height, lx = f.x / 4.0, ty = f.y / 4.0
             )).unwrap_or_default();
+            let close = if f.snap_step.is_some() { "match these numbers exactly" } else { "are within 2px of these numbers" };
             let scope = match edit.scope {
                 crate::protocol::Scope::All => "",
                 crate::protocol::Scope::TabletDown => " Scope the classes with `max-lg:`.",
                 crate::protocol::Scope::MobileDown => " Scope the classes with `max-md:`.",
             };
             out.push_str(&format!(
-                "\n\nEdit {}: the user placed this freely. Its box ({}×{}px) sits {}px from the left and {}px from the top of the content box ({}×{}px) of the container it was dropped on, at a {}px wide viewport; its anchor and position only name the nearest sibling there. Make it render at that spot using layout only: its place among the siblings, margins, padding, `gap`, and flex or grid alignment (`justify-*`, `items-*`, `self-*`, `m*-auto`), with values on the Tailwind scale. Never use absolute or fixed positioning or transforms.{scope}{snapped} Then screenshot and compare with these numbers.",
-                edit.id, f.width, f.height, f.x, f.y, f.container_width, f.container_height, edit.viewport.width, snapped = snapped
+                "\n\nEdit {}: the user placed this freely. Its box ({}×{}px) sits {}px from the left and {}px from the top of the content box ({}×{}px) of the container it was dropped on, at a {}px wide viewport; its anchor and position only name the nearest sibling there. Make it render at that spot using layout only: its place among the siblings, margins, padding, `gap`, and flex or grid alignment (`justify-*`, `items-*`, `self-*`, `m*-auto`), with values on the Tailwind scale. Never use absolute or fixed positioning or transforms.{scope}{snapped} Then call the divina `measure_placement` tool with a CSS selector for the element (and `container` if it no longer sits directly in that container) at this viewport width, and adjust the code until its x and y {close}.",
+                edit.id, f.width, f.height, f.x, f.y, f.container_width, f.container_height, edit.viewport.width, snapped = snapped, close = close
             ));
         }
         if beside == Some(true) {
@@ -268,7 +268,9 @@ mod tests {
         let p = build_prompt(Path::new("/nonexistent"), &edits);
         assert!(p.contains("Edit f1: the user placed this freely. Its box (76×36px) sits 120px from the left and 48px from the top of the content box (358×300px)"), "{p}");
         assert!(p.contains("Scope the classes with `max-md:`."), "{p}");
-        assert!(p.contains("snapped to a 4px grid, so they are exact Tailwind spacing values (4px = 1 unit): left 120px = 30 (e.g. `ml-30`, `pl-30` or `gap-30`), top 48px = 12 (e.g. `mt-12`, `pt-12` or `gap-12`). That leaves 162px to the right of the box and 216px below it."), "{p}");
+        assert!(p.contains("snapped to a 4px grid, so they are exact Tailwind spacing values (4px = 1 unit): left 120px = 30, top 48px = 12."), "{p}");
+        assert!(p.contains("`gap-30`, `pl-30`, `ml-30`; `gap-12`, `pt-12`, `mt-12`") && p.contains("`ml-[120px]`") && p.contains("162px to the right of the box and 216px below it"), "{p}");
+        assert!(p.contains("`measure_placement` tool") && p.contains("until its x and y match these numbers exactly."), "{p}");
     }
 
     #[test]

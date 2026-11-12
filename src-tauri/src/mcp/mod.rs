@@ -190,6 +190,7 @@ fn rpc(
             {"name":"screenshot_frame","description":"Capture the preview at its current viewport as PNG.","inputSchema":{"type":"object","properties":{}}},
             {"name":"get_dom_snapshot","description":"Get the preview DOM tree with source references.","inputSchema":{"type":"object","properties":{}}},
             {"name":"get_console_errors","description":"Get console errors from the preview.","inputSchema":{"type":"object","properties":{}}},
+            {"name":"measure_placement","description":"Measure where an element you placed actually renders: its box in px inside its container's content box, the same numbers a freely placed edit gives (x from the left, y from the top, width, height, containerWidth, containerHeight), plus the viewport width. Call it after implementing a free placement and fix the code until x and y match the edit.","inputSchema":{"type":"object","properties":{"selector":{"type":"string","description":"CSS selector for the placed element; the first match is measured."},"container":{"type":"string","description":"CSS selector for the container to measure against. Defaults to the element's parent."}},"required":["selector"]}},
             {"name":"edits_applied","description":"Call when you've finished implementing the Divina edits, so Divina shows the user the diff to review.","inputSchema":{"type":"object","properties":{"summary":{"type":"string","description":"One line on what you changed."}}}}
         ]}),
         "tools/call" => {
@@ -200,6 +201,7 @@ fn rpc(
                 "screenshot_frame",
                 "get_dom_snapshot",
                 "get_console_errors",
+                "measure_placement",
                 "edits_applied",
             ]
             .contains(&name)
@@ -263,6 +265,8 @@ fn rpc(
                     "Thanks. Nothing was sent from Divina, so there is no diff to show."
                 };
                 json!({"content":[{"type":"text","text":text}],"isError":false})
+            } else if name == "measure_placement" && payload.get("error").is_some() {
+                json!({"content":[{"type":"text","text":payload["error"].as_str().unwrap_or("could not measure")}],"isError":true})
             } else {
                 json!({"content":[{"type":"text","text":payload.to_string()}],"structuredContent":payload,"isError":false})
             }
@@ -337,7 +341,7 @@ mod tests {
         let listed: Value =
             serde_json::from_str(&call(json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})))
                 .unwrap();
-        assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 5);
+        assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 6);
         let called: Value = serde_json::from_str(&call(json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_pending_edits","arguments":{}}}))).unwrap();
         assert_eq!(called["result"]["structuredContent"]["edits"][0]["id"], "e1");
         let text = called["result"]["content"][0]["text"].as_str().unwrap();

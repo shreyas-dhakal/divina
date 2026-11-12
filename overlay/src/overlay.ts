@@ -1,5 +1,8 @@
 import { OWNERS_ATTR, SRC_ATTR, type DomAnchor, type EditRecord, type SourceRef } from "../../src/shared/protocol.ts";
 
+/** Where `rect` sits in a container's content box `box`, in whole px: the numbers a free edit carries and `measure_placement` reports. */
+export const placeIn = (rect: { left: number; top: number; width: number; height: number }, box: { x: number; y: number; width: number; height: number }) =>
+  ({ x: Math.round(rect.left - box.x), y: Math.round(rect.top - box.y), width: Math.round(rect.width), height: Math.round(rect.height), containerWidth: Math.round(box.width), containerHeight: Math.round(box.height) });
 export const snapOffset = (value: number, step: number) => step > 0 ? Math.round(value / step) * step : value;
 
 type Loc = Omit<SourceRef, "owners" | "list">;

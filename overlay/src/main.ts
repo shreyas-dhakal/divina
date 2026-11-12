@@ -1,5 +1,5 @@
 import type { DomAnchor, DomNode, EditRecord, FreePlace, HostToOverlay, InsertPayload, InsertPlace, LibraryRef, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
-import { applyPreview, buildDomAnchor, componentName, getUserCodeTarget, resolveSourceRef, snapOffset } from "./overlay.js";
+import { applyPreview, buildDomAnchor, componentName, getUserCodeTarget, placeIn, resolveSourceRef, snapOffset } from "./overlay.js";
 import { measureGaps, spacingLabel } from "./guides.js";
 import { pickDropSlot, type DropSlot } from "./slots.js";
 import { detectAlignment, type CrossAlignment } from "./align.js";
@@ -290,9 +290,21 @@ function hoverAt(x: number, y: number, free = false): Hover | null {
 }
 /** Where `element` sits in `container`'s content box, for the brief and for pinning it there again. */
 function freeAt(element: Element, container: Element): FreePlace {
-  const r = element.getBoundingClientRect();
-  const box = contentRect(container);
-  return { x: snapOffset(Math.round(r.left - box.x), snapStep), y: snapOffset(Math.round(r.top - box.y), snapStep), width: Math.round(r.width), height: Math.round(r.height), containerWidth: Math.round(box.width), containerHeight: Math.round(box.height), ...(snapStep > 0 && { snapStep }) };
+  const at = placeIn(element.getBoundingClientRect(), contentRect(container));
+  return { ...at, x: snapOffset(at.x, snapStep), y: snapOffset(at.y, snapStep), ...(snapStep > 0 && { snapStep }) };
+}
+/** Answers the agent's `measure_placement`: the same numbers as a free edit, read from the code it just wrote. */
+function measure(selector: string, containerSelector?: string): { place: FreePlace; matches: number } | { error: string } {
+  try {
+    const found = document.querySelectorAll(selector);
+    const element = found[0];
+    if (!element) return { error: `Nothing matches ${selector}.` };
+    const container = containerSelector ? document.querySelector(containerSelector) : element.parentElement;
+    if (!container) return { error: containerSelector ? `Nothing matches ${containerSelector}.` : "The element has no parent." };
+    return { place: placeIn(element.getBoundingClientRect(), contentRect(container)), matches: found.length };
+  } catch (e) {
+    return { error: String(e) };
+  }
 }
 function showSnapGrid(container: Element | null) {
   if (!container || snapStep <= 0) { snapGuide.style.display = "none"; return; }
@@ -791,6 +803,9 @@ function receive(event: MessageEvent<HostToOverlay>) {
       break;
     case "screenshot-request":
       if (message.requestId) void renderScreenshot(message.requestId);
+      break;
+    case "measure-request":
+      if (message.requestId) send({ type: "measure-response", requestId: message.requestId, ...measure(message.selector, message.container) });
       break;
   }
 }

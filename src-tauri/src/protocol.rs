@@ -245,6 +245,15 @@ pub enum OverlayToHost {
     },
     ScreenshotRequest { request_id: String },
     ScreenshotResponse { request_id: String, data_url: String },
+    MeasureResponse {
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        place: Option<FreePlace>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        matches: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -287,6 +296,12 @@ pub enum HostToOverlay {
     TrashZone { rect: Rect },
     RequestSnapshot { request_id: String },
     ScreenshotRequest { request_id: String },
+    MeasureRequest {
+        request_id: String,
+        selector: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        container: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -549,6 +564,9 @@ mod tests {
             "viewport": vp, "scope": "all"})).unwrap();
         assert_eq!(del.edit, EditKind::Delete);
         roundtrip::<OverlayToHost>(json!({"type": "screenshot-response", "requestId": "r1", "dataUrl": "data:"}));
+        roundtrip::<OverlayToHost>(json!({"type": "measure-response", "requestId": "r1", "matches": 1,
+            "place": {"x": 120.0, "y": 48.0, "width": 76.0, "height": 36.0, "containerWidth": 358.0, "containerHeight": 300.0}}));
+        roundtrip::<HostToOverlay>(json!({"type": "measure-request", "requestId": "r1", "selector": "main > button"}));
         roundtrip::<OverlayToHost>(json!({"type": "hover", "ref": null, "rect": null}));
         roundtrip::<OverlayToHost>(json!({"type": "discard-edit", "id": "e1"}));
         roundtrip::<OverlayToHost>(json!({"type": "select", "ref": {"file": "", "line": 0, "col": 0, "owners": []}, "rect": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}, "computed": {},
