@@ -3,8 +3,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Orbis } from "@/components/Orbis";
 import { SettingsFooter } from "@/components/Settings";
 import { api } from "@/lib/api";
+import icon from "@/assets/icon.svg";
 import type { ProjectInfo, ProjectTemplate } from "@/shared/protocol";
 
 const RECENT_KEY = "divina.recent";
@@ -62,12 +64,17 @@ export function Welcome({ onOpen }: { onOpen: (p: ProjectInfo) => void }) {
   }
 
   return (
-    <div className="relative flex h-screen items-center justify-center bg-background text-foreground">
+    <div className="relative flex h-screen items-center justify-center overflow-hidden bg-background text-foreground">
+      {/* Centred just inside the corner, so the rings run off two edges. */}
+      <Orbis className="pointer-events-none absolute top-0 left-0 size-[75vmin] -translate-1/3 opacity-50" />
       <div className="absolute bottom-0 left-0 w-60">
         <SettingsFooter />
       </div>
-      <div className="flex w-[28rem] flex-col gap-6">
-        <h1 className="text-2xl font-semibold">Divina</h1>
+      <div className="relative flex w-[28rem] flex-col gap-6">
+        <h1 className="flex items-center gap-3 text-2xl font-semibold">
+          <img src={icon} alt="" className="size-10" />
+          Divina
+        </h1>
 
         <section className="flex flex-col gap-2">
           <h2 className="text-sm font-medium">Open project folder</h2>
