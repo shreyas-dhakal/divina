@@ -121,14 +121,15 @@ pub(crate) fn build_prompt(root: &Path, edits: &[EditRecord]) -> String {
             _ => continue,
         };
         if let Some(f) = free {
+            let snapped = f.snap_step.map(|step| format!(" The free offsets were grid-snapped to {step}px increments; they are on the Tailwind spacing scale (4px = 1 unit), so map them exactly to spacing classes.")).unwrap_or_default();
             let scope = match edit.scope {
                 crate::protocol::Scope::All => "",
                 crate::protocol::Scope::TabletDown => " Scope the classes with `max-lg:`.",
                 crate::protocol::Scope::MobileDown => " Scope the classes with `max-md:`.",
             };
             out.push_str(&format!(
-                "\n\nEdit {}: the user placed this freely. Its box ({}×{}px) sits {}px from the left and {}px from the top of the content box ({}×{}px) of the container it was dropped on, at a {}px wide viewport; its anchor and position only name the nearest sibling there. Make it render at that spot using layout only: its place among the siblings, margins, padding, `gap`, and flex or grid alignment (`justify-*`, `items-*`, `self-*`, `m*-auto`), with values on the Tailwind scale. Never use absolute or fixed positioning or transforms.{scope} Then screenshot and compare with these numbers.",
-                edit.id, f.width, f.height, f.x, f.y, f.container_width, f.container_height, edit.viewport.width
+                "\n\nEdit {}: the user placed this freely. Its box ({}×{}px) sits {}px from the left and {}px from the top of the content box ({}×{}px) of the container it was dropped on, at a {}px wide viewport; its anchor and position only name the nearest sibling there. Make it render at that spot using layout only: its place among the siblings, margins, padding, `gap`, and flex or grid alignment (`justify-*`, `items-*`, `self-*`, `m*-auto`), with values on the Tailwind scale. Never use absolute or fixed positioning or transforms.{scope}{snapped} Then screenshot and compare with these numbers.",
+                edit.id, f.width, f.height, f.x, f.y, f.container_width, f.container_height, edit.viewport.width, snapped = snapped
             ));
         }
         if beside == Some(true) {
@@ -258,10 +259,11 @@ mod tests {
         let edits = records(json!([{"id": "f1", "kind": "insert", "target": src,
             "viewport": {"preset": "mobile", "width": 390, "height": 844}, "scope": "mobile-down",
             "payload": {"component": "Button", "importFrom": "@/button", "anchor": src, "position": "after",
-                "free": {"x": 120, "y": 48, "width": 76, "height": 36, "containerWidth": 358, "containerHeight": 300}}}]));
+                "free": {"x": 120, "y": 48, "width": 76, "height": 36, "containerWidth": 358, "containerHeight": 300, "snapStep": 4}}}]));
         let p = build_prompt(Path::new("/nonexistent"), &edits);
         assert!(p.contains("Edit f1: the user placed this freely. Its box (76×36px) sits 120px from the left and 48px from the top of the content box (358×300px)"), "{p}");
         assert!(p.contains("Scope the classes with `max-md:`."), "{p}");
+        assert!(p.contains("grid-snapped to 4px increments; they are on the Tailwind spacing scale (4px = 1 unit)"), "{p}");
     }
 
     #[test]

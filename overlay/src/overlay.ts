@@ -1,5 +1,7 @@
 import { OWNERS_ATTR, SRC_ATTR, type DomAnchor, type EditRecord, type SourceRef } from "../../src/shared/protocol.ts";
 
+export const snapOffset = (value: number, step: number) => step > 0 ? Math.round(value / step) * step : value;
+
 type Loc = Omit<SourceRef, "owners" | "list">;
 
 /** "file:line:col", parsed from the right since paths may hold ":". */

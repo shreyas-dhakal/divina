@@ -29,6 +29,8 @@ interface Props {
   setViewport: (vp: Viewport) => void;
   iframeRef: RefObject<HTMLIFrameElement | null>;
   dragging: boolean;
+  snapStep: number;
+  setSnapStep: (step: number) => void;
   /** Canvas drag reported by the overlay; shows the trash zone it hit-tests. */
   canvasDrag: "idle" | "moving" | "over-trash";
   /** Trash button rect in frame coords, sent when a canvas drag starts. */
@@ -42,7 +44,7 @@ interface Props {
   onToggleSidebar: (side: "left" | "right" | "both") => void;
 }
 
-export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, dragging, canvasDrag, onTrashZone, onDrop, onHover, sidebars, onToggleSidebar }: Props) {
+export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, dragging, snapStep, setSnapStep, canvasDrag, onTrashZone, onDrop, onHover, sidebars, onToggleSidebar }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const trashRef = useRef<HTMLDivElement>(null);
@@ -205,6 +207,14 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
           value={viewport.height}
           onChange={(e) => custom(viewport.width, +e.target.value)}
         />
+        <Select value={String(snapStep)} onValueChange={(v) => v && setSnapStep(Number(v))}>
+          <SelectTrigger size="sm" className="w-[76px]" aria-label="Snap grid"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="0">Snap Off</SelectItem>
+            <SelectItem value="4">Snap 4px</SelectItem>
+            <SelectItem value="8">Snap 8px</SelectItem>
+          </SelectContent>
+        </Select>
         <div className="ml-auto flex items-center gap-0.5 rounded-md border bg-background p-0.5">
           <Button size="icon-xs" variant={tool === "select" ? "secondary" : "ghost"} aria-label="Select" title="Select (V)" onClick={() => setTool("select")}>
             <MousePointer2 />

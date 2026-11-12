@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { applyPreview, buildDomAnchor, resolveSourceRef } from "./overlay.js";
+import { applyPreview, buildDomAnchor, resolveSourceRef, snapOffset } from "./overlay.js";
 import { pickDropSlot } from "./slots.js";
 import { detectAlignment } from "./align.js";
 
@@ -17,6 +17,13 @@ describe("cross-axis alignment", () => {
     expect(detectAlignment(rect, "column", { x: 198, y: 20 }, true)).toBe("end");
     expect(detectAlignment(rect, "row", { x: 0, y: 50 }, false)).toBeNull();
     expect(detectAlignment(rect, "row", { x: 0, y: 20 }, true)).toBeNull();
+  });
+});
+
+describe("free placement grid", () => {
+  it("rounds offsets to the nearest step and leaves them exact when disabled", () => {
+    expect([snapOffset(5, 4), snapOffset(6, 4), snapOffset(13, 8)]).toEqual([4, 8, 16]);
+    expect(snapOffset(5.5, 0)).toBe(5.5);
   });
 });
 
@@ -451,16 +458,16 @@ describe("free placement", () => {
     expect(placed).toBe(ghost);
     expect([...section.children]).toEqual([h1, p]);
     const first = sent.filter((m) => m.type === "edit").pop()!.record!;
-    expect(first.payload.free).toEqual({ x: 190, y: 140, width: 60, height: 30, containerWidth: 400, containerHeight: 300 });
+    expect(first.payload.free).toEqual({ x: 192, y: 144, width: 60, height: 30, containerWidth: 400, containerHeight: 300, snapStep: 8 });
     expect(first.payload.beside).toBeUndefined();
-    expect([placed.style.position, placed.style.left, placed.style.top]).toEqual(["absolute", "200px", "150px"]);
+    expect([placed.style.position, placed.style.left, placed.style.top]).toEqual(["absolute", "202px", "154px"]);
 
     placed.click();
     const at = (type: string, x: number, y: number) => placed.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y }));
     at("pointerdown", 210, 160);
     at("pointermove", 240, 200);
     at("pointerup", 240, 200);
-    expect([placed.style.left, placed.style.top]).toEqual(["230px", "190px"]);
+    expect([placed.style.left, placed.style.top]).toEqual(["234px", "194px"]);
     expect(sent.slice(-2).map((m) => [m.type, m.id ?? m.record?.id])).toEqual([["discard-edit", first.id], ["edit", first.id]]);
     post({ type: "clear-optimistic" });
     expect(placed.isConnected).toBe(false);
@@ -483,7 +490,7 @@ describe("free placement", () => {
     at("pointerdown", 20, 70);
     at("pointermove", 120, 170);
     at("pointerup", 120, 170);
-    expect(p!.style.translate).toBe("100px 100px");
+    expect(p!.style.translate).toBe("104px 100px");
     expect([...section.children]).toEqual([h1, p]);
     const move = sent.filter((m) => m.record?.kind === "move").pop()!.record!;
     expect(move).toMatchObject({ target: { file: "src/App.tsx" }, payload: { free: { containerWidth: 400, containerHeight: 300 } } });

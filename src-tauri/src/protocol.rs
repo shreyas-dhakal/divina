@@ -83,6 +83,8 @@ pub struct FreePlace {
     pub height: f64,
     pub container_width: f64,
     pub container_height: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snap_step: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -262,6 +264,8 @@ pub enum HostToOverlay {
         image: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         free: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        snap_step: Option<u8>,
     },
     InsertHover {
         x: f64,
@@ -274,7 +278,10 @@ pub enum HostToOverlay {
         image: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         free: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        snap_step: Option<u8>,
     },
+    SetSnapStep { snap_step: u8 },
     PreviewEdit { record: EditRecord },
     ClearOptimistic,
     TrashZone { rect: Rect },
