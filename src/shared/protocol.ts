@@ -80,6 +80,9 @@ export interface DomAnchor {
   meta?: string;
 }
 
+/** What an element is (overlay `identify`): tag, own visible text, and the components whose root node it is, innermost first. */
+export interface ElementIdentity { tag: string; text: string; components?: string[] }
+
 export interface MovePayload {
   anchor: SourceRef;
   position: Position;
@@ -87,6 +90,8 @@ export interface MovePayload {
   beside?: boolean;
   /** As InsertPayload.free. */
   free?: FreePlace;
+  /** The freely moved element, so `measure_placement` can tell it from its neighbours afterwards. */
+  moved?: ElementIdentity;
 }
 
 export interface StylePayload {
@@ -157,7 +162,7 @@ export type OverlayToHost =
   | { type: "screenshot-request"; requestId: string }
   | { type: "screenshot-response"; requestId: string; dataUrl: string }
   /** Answer to measure-request: `place` as in a free edit (unsnapped), `matches` elements for the selector; or why not. */
-  | { type: "measure-response"; requestId: string; place?: FreePlace; matches?: number; error?: string };
+  | { type: "measure-response"; requestId: string; place?: FreePlace; matches?: number; element?: ElementIdentity; error?: string };
 
 export type HostToOverlay =
   | { type: "set-mode"; mode: OverlayMode }

@@ -127,6 +127,16 @@ pub struct DomAnchor {
     pub meta: Option<String>,
 }
 
+/// What an element is: tag, own visible text, and the components whose root node it is.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElementIdentity {
+    pub tag: String,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub components: Option<Vec<String>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MovePayload {
@@ -136,6 +146,8 @@ pub struct MovePayload {
     pub beside: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub free: Option<FreePlace>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved: Option<ElementIdentity>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -251,6 +263,8 @@ pub enum OverlayToHost {
         place: Option<FreePlace>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         matches: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        element: Option<ElementIdentity>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
@@ -564,8 +578,10 @@ mod tests {
             "viewport": vp, "scope": "all"})).unwrap();
         assert_eq!(del.edit, EditKind::Delete);
         roundtrip::<OverlayToHost>(json!({"type": "screenshot-response", "requestId": "r1", "dataUrl": "data:"}));
-        roundtrip::<OverlayToHost>(json!({"type": "measure-response", "requestId": "r1", "matches": 1,
+        roundtrip::<OverlayToHost>(json!({"type": "measure-response", "requestId": "r1", "matches": 1, "element": {"tag": "button", "text": "Save", "components": ["Primitive.button", "Button"]},
             "place": {"x": 120.0, "y": 48.0, "width": 76.0, "height": 36.0, "containerWidth": 358.0, "containerHeight": 300.0}}));
+        roundtrip::<EditRecord>(json!({"id": "e11", "kind": "move", "target": src, "viewport": vp, "scope": "all",
+            "payload": {"anchor": src, "position": "after", "moved": {"tag": "h2", "text": "Pricing"}}}));
         roundtrip::<HostToOverlay>(json!({"type": "measure-request", "requestId": "r1", "selector": "main > button"}));
         roundtrip::<OverlayToHost>(json!({"type": "hover", "ref": null, "rect": null}));
         roundtrip::<OverlayToHost>(json!({"type": "discard-edit", "id": "e1"}));

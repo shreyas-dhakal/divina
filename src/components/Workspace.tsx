@@ -166,7 +166,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       else if (msg.type === "discard-edit") setEdits((q) => q.filter((e) => e.id !== msg.id));
       else if (msg.type === "dom-snapshot") pending.current.get(msg.requestId)?.(msg.root);
       else if (msg.type === "screenshot-response") pending.current.get(msg.requestId)?.({ dataUrl: msg.dataUrl });
-      else if (msg.type === "measure-response") pending.current.get(msg.requestId)?.(msg.error ? { error: msg.error } : { ...msg.place, matches: msg.matches, viewportWidth: viewportRef.current.width });
+      else if (msg.type === "measure-response") pending.current.get(msg.requestId)?.(msg.error ? { error: msg.error } : { ...msg.place, matches: msg.matches, element: msg.element, viewportWidth: viewportRef.current.width });
       else if (msg.type === "console-error") {
         consoleErrors.current = [...consoleErrors.current.slice(-99), msg.message];
         setLogs((l) => [...l, `[frame] ${msg.message}`]);

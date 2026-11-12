@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { applyPreview, buildDomAnchor, placeIn, resolveSourceRef, snapOffset } from "./overlay.js";
+import { applyPreview, buildDomAnchor, identify, placeIn, resolveSourceRef, snapOffset } from "./overlay.js";
 import { pickDropSlot } from "./slots.js";
 import { detectAlignment } from "./align.js";
 
@@ -28,6 +28,17 @@ describe("free placement grid", () => {
   it("measures a box inside a container's content box in whole px", () => {
     expect(placeIn({ left: 136.4, top: 64, width: 76, height: 35.6 }, { x: 16, y: 16, width: 358, height: 300 }))
       .toEqual({ x: 120, y: 48, width: 76, height: 36, containerWidth: 358, containerHeight: 300 });
+  });
+});
+
+describe("element identity", () => {
+  it("names every component the element is the root of, up to the next DOM element", () => {
+    const button = document.createElement("button");
+    button.textContent = "Save";
+    const host = { type: "div", return: { type: { name: "App" } } };
+    Object.assign(button, { __reactFiber$x: { type: "button", return: { type: { displayName: "Primitive.button" }, return: { type: { render: { name: "Button" } }, return: host } } } });
+    expect(identify(button)).toEqual({ tag: "button", text: "Save", components: ["Primitive.button", "Button"] });
+    expect(identify(document.createElement("p"))).toEqual({ tag: "p", text: "" });
   });
 });
 

@@ -1,5 +1,5 @@
-import type { DomAnchor, DomNode, EditRecord, FreePlace, HostToOverlay, InsertPayload, InsertPlace, LibraryRef, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
-import { applyPreview, buildDomAnchor, componentName, getUserCodeTarget, placeIn, resolveSourceRef, snapOffset } from "./overlay.js";
+import type { DomAnchor, DomNode, EditRecord, ElementIdentity, FreePlace, HostToOverlay, InsertPayload, InsertPlace, LibraryRef, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
+import { applyPreview, buildDomAnchor, componentName, getUserCodeTarget, identify, placeIn, resolveSourceRef, snapOffset } from "./overlay.js";
 import { measureGaps, spacingLabel } from "./guides.js";
 import { pickDropSlot, type DropSlot } from "./slots.js";
 import { detectAlignment, type CrossAlignment } from "./align.js";
@@ -294,14 +294,15 @@ function freeAt(element: Element, container: Element): FreePlace {
   return { ...at, x: snapOffset(at.x, snapStep), y: snapOffset(at.y, snapStep), ...(snapStep > 0 && { snapStep }) };
 }
 /** Answers the agent's `measure_placement`: the same numbers as a free edit, read from the code it just wrote. */
-function measure(selector: string, containerSelector?: string): { place: FreePlace; matches: number } | { error: string } {
+function measure(selector: string, containerSelector?: string): { place: FreePlace; matches: number; element: ElementIdentity } | { error: string } {
   try {
     const found = document.querySelectorAll(selector);
     const element = found[0];
     if (!element) return { error: `Nothing matches ${selector}.` };
     const container = containerSelector ? document.querySelector(containerSelector) : element.parentElement;
     if (!container) return { error: containerSelector ? `Nothing matches ${containerSelector}.` : "The element has no parent." };
-    return { place: placeIn(element.getBoundingClientRect(), contentRect(container)), matches: found.length };
+    if (!container.contains(element) || container === element) return { error: `${containerSelector} does not contain the element.` };
+    return { place: placeIn(element.getBoundingClientRect(), contentRect(container)), matches: found.length, element: identify(element) };
   } catch (e) {
     return { error: String(e) };
   }
@@ -606,7 +607,7 @@ function moveFreely(element: HTMLElement, slot: DropSlot | null, dx: number, dy:
     const snapped = { x: total.x + snapOffset(rect.left + dx - box.x, snapStep) - (rect.left + dx - box.x), y: total.y + snapOffset(rect.top + dy - box.y, snapStep) - (rect.top + dy - box.y) };
     element.style.translate = `${snapped.x}px ${snapped.y}px`;
     const anchor = slot ? through(slot.anchor, slot.position) : element;
-    const move = edit("move", element, { anchor: targetOf(anchor).target, position: slot?.position ?? "after", free: freeAt(element, container) });
+    const move = edit("move", element, { anchor: targetOf(anchor).target, position: slot?.position ?? "after", free: freeAt(element, container), moved: identify(element) });
     shifts.set(element, { ...snapped, id: move.id });
     revert.push(() => { element.style.translate = before; shifts.delete(element); });
     if (was) send({ type: "discard-edit", id: was.id });

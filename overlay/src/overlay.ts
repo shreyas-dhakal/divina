@@ -1,4 +1,4 @@
-import { OWNERS_ATTR, SRC_ATTR, type DomAnchor, type EditRecord, type SourceRef } from "../../src/shared/protocol.ts";
+import { OWNERS_ATTR, SRC_ATTR, type DomAnchor, type EditRecord, type ElementIdentity, type SourceRef } from "../../src/shared/protocol.ts";
 
 /** Where `rect` sits in a container's content box `box`, in whole px: the numbers a free edit carries and `measure_placement` reports. */
 export const placeIn = (rect: { left: number; top: number; width: number; height: number }, box: { x: number; y: number; width: number; height: number }) =>
@@ -60,6 +60,24 @@ export function componentName(element: Element): string | undefined {
   if (fiber) return nameOf(fiber.return?.type);
   const vue = (element as Element & { __vueParentComponent?: { type?: unknown; subTree?: { el?: unknown } } }).__vueParentComponent;
   return vue?.subTree?.el === element ? nameOf(vue.type) : undefined;
+}
+
+/**
+ * What an element is, so a measured element can be checked against the one the user placed: its tag,
+ * own visible text, and every component whose root DOM node it is, innermost first (a Button built on
+ * a primitive is both). React walks the fibers up to the next DOM element; Vue gives the one name.
+ */
+export function identify(element: Element): ElementIdentity {
+  const key = Object.keys(element).find((k) => k.startsWith("__reactFiber$"));
+  type Fiber = { type?: unknown; return?: Fiber };
+  const components: string[] = [];
+  for (let fiber = key ? (element as unknown as Record<string, Fiber>)[key]?.return : undefined; fiber && typeof fiber.type !== "string"; fiber = fiber.return) {
+    const name = nameOf(fiber.type);
+    if (name) components.push(name);
+  }
+  const vue = components.length ? undefined : componentName(element);
+  if (vue) components.push(vue);
+  return { tag: element.tagName.toLowerCase(), text: visibleText(element), ...(components.length && { components }) };
 }
 
 export function getUserCodeTarget(element: Element): Element | null {
