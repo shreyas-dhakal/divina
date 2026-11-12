@@ -166,7 +166,8 @@ function dropInsert(component: string, importFrom: string, x: number, y: number,
   const box = document.createElement("div");
   box.dataset.divinaPlaceholder = "true";
   box.textContent = component;
-  box.style.cssText = "border:1px dashed #7c3aed;background:#7c3aed12;color:#6d28d9;padding:16px;text-align:center";
+  // Sized to its label, not the parent: a block div spans the whole row and misrepresents a Button.
+  box.style.cssText = "display:inline-block;width:fit-content;align-self:flex-start;border:1px dashed #7c3aed;border-radius:6px;background:#7c3aed12;color:#6d28d9;padding:4px 12px;font:12px/1.5 system-ui";
   if (position.startsWith("inside")) target.insertBefore(box, position === "inside-start" ? target.firstChild : null);
   else target.parentNode?.insertBefore(box, position === "before" ? target : target.nextSibling);
   revert.push(() => box.remove());

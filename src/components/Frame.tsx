@@ -83,8 +83,11 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
             {dragging && (
               <div
                 className="absolute inset-0 outline-2 outline-dashed outline-primary"
+                // WebKit only treats this as a drop target if dragenter is cancelled too.
+                onDragEnter={(e) => e.preventDefault()}
                 onDragOver={(e) => {
                   e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
                   onHover(toFrameCoords(e.clientX, e.clientY, frameRef.current!.getBoundingClientRect(), scale));
                 }}
                 onDragLeave={() => onHover({ x: -1, y: -1 })}

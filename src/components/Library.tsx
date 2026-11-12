@@ -19,6 +19,11 @@ function stackLabel(s: Stack | null) {
   return [name, major === "0" ? `0.${minor}` : major].filter(Boolean).join(" ");
 }
 
+// WebKit creates no frame for iframes past 1000 per page (lazy ones count too), so a package with
+// thousands of exports (lucide-react) left the preview frame empty. Past this, names only.
+// ponytail: first N in list order; render thumbnails as they scroll into view if users miss them.
+const MAX_THUMBS = 60;
+
 /** `previewUrl` is the proxied dev server; Vite projects get live thumbnails from it. */
 export function Library({ root, previewUrl, onDragging }: { root: string; previewUrl: string | null; onDragging: (d: boolean) => void }) {
   const [components, setComponents] = useState<LibraryComponent[]>([]);
@@ -67,6 +72,8 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
 
   const q = query.toLowerCase();
   const shown = components.filter((c) => c.name.toLowerCase().includes(q));
+  /** Thumbnail iframes rendered so far in this pass; see MAX_THUMBS. */
+  let thumbs = 0;
   const lib = catalog.find((l) => l.id === selected);
   const items = [{ value: PROJECT, label: "Your project" }, ...catalog.map((l) => ({ value: l.id, label: l.name }))];
 
@@ -103,13 +110,14 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
               <h3 className="px-2 pb-1 text-xs font-medium text-muted-foreground uppercase">{SOURCES[src]}</h3>
               {group.map((c) => {
                 const key = `${c.importFrom}#${c.name}`;
-                const thumb = c.previewable && previewUrl && rendered[key] !== false;
+                const thumb = c.previewable && previewUrl && rendered[key] !== false && thumbs++ < MAX_THUMBS;
                 const src = previewUrl && `${new URL("/.divina/preview.html", previewUrl)}?m=${encodeURIComponent(c.importFrom)}&n=${encodeURIComponent(c.name)}`;
                 return (
                 <div
                   key={key}
                   draggable
                   onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = "copy";
                     e.dataTransfer.setData(DRAG_MIME, JSON.stringify(c));
                     onDragging(true);
                   }}
@@ -182,6 +190,7 @@ function CatalogGrid({ lib, query, onDragging }: { lib: CatalogLibrary; query: s
           onDragStart={(e) => {
             // `library` marks a catalog drop; Workspace forwards it in preview-insert.
             const library = { id: lib.id, name: lib.name, install: lib.install, usage: c.usage };
+            e.dataTransfer.effectAllowed = "copy";
             e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ name: c.name, importFrom: lib.importFrom ?? "", library }));
             onDragging(true);
           }}
