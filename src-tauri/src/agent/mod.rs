@@ -126,15 +126,14 @@ pub(crate) fn build_prompt(root: &Path, edits: &[EditRecord]) -> String {
                 " The offsets were snapped to a {step}px grid, so they are exact Tailwind spacing values (4px = 1 unit): left {}px = {lx}, top {}px = {ty}. Carry them with `gap`, the container's padding or a margin, whichever the surrounding layout already uses (e.g. `gap-{lx}`, `pl-{lx}`, `ml-{lx}`; `gap-{ty}`, `pt-{ty}`, `mt-{ty}`); on Tailwind v3 write a value missing from its scale as `ml-[{}px]`. That leaves {}px to the right of the box and {}px below it. Use these exact values, not approximations.",
                 f.x, f.y, f.x, f.container_width - f.x - f.width, f.container_height - f.y - f.height, lx = f.x / 4.0, ty = f.y / 4.0
             )).unwrap_or_default();
-            let close = if f.snap_step.is_some() { "match these numbers exactly" } else { "are within 2px of these numbers" };
             let scope = match edit.scope {
                 crate::protocol::Scope::All => "",
                 crate::protocol::Scope::TabletDown => " Scope the classes with `max-lg:`.",
                 crate::protocol::Scope::MobileDown => " Scope the classes with `max-md:`.",
             };
             out.push_str(&format!(
-                "\n\nEdit {}: the user placed this freely. Its box ({}×{}px) sits {}px from the left and {}px from the top of the content box ({}×{}px) of the container it was dropped on, at a {}px wide viewport; its anchor and position only name the nearest sibling there. Make it render at that spot using layout only: its place among the siblings, margins, padding, `gap`, and flex or grid alignment (`justify-*`, `items-*`, `self-*`, `m*-auto`), with values on the Tailwind scale. Never use absolute or fixed positioning or transforms.{scope}{snapped} While you work, put `data-divina-edit=\"{id}\"` on the placed element itself (an inserted component's root element, or the moved element). Then call the divina `measure_placement` tool with `edit` set to `{id}` (plus `container`, a CSS selector for that container, if the element no longer sits directly in it; or `selector` if its component does not pass attributes through to the DOM), and adjust the code until its x and y {close} and the tool answers `ok: true`. Then remove the attribute; `edits_applied` is refused until the placement is ok and the attribute is gone.",
-                edit.id, f.width, f.height, f.x, f.y, f.container_width, f.container_height, edit.viewport.width, snapped = snapped, close = close, id = edit.id
+                "\n\nEdit {}: the user placed this freely. Its box ({}×{}px) sits {}px from the left and {}px from the top of the content box ({}×{}px) of the container it was dropped on, at a {}px wide viewport; its anchor and position only name the nearest sibling there. Make it render at that spot using layout only: its place among the siblings, margins, padding, `gap`, and flex or grid alignment (`justify-*`, `items-*`, `self-*`, `m*-auto`), with values on the Tailwind scale. Never use absolute or fixed positioning or transforms.{scope}{snapped} After implementing, call the divina `measure_placement` tool with `edit` set to `{id}` and adjust the code until it answers `ok: true`; `edits_applied` is refused until placement is correct.",
+                edit.id, f.width, f.height, f.x, f.y, f.container_width, f.container_height, edit.viewport.width, snapped = snapped, id = edit.id
             ));
         }
         if beside == Some(true) {
@@ -270,7 +269,7 @@ mod tests {
         assert!(p.contains("Scope the classes with `max-md:`."), "{p}");
         assert!(p.contains("snapped to a 4px grid, so they are exact Tailwind spacing values (4px = 1 unit): left 120px = 30, top 48px = 12."), "{p}");
         assert!(p.contains("`gap-30`, `pl-30`, `ml-30`; `gap-12`, `pt-12`, `mt-12`") && p.contains("`ml-[120px]`") && p.contains("162px to the right of the box and 216px below it"), "{p}");
-        assert!(p.contains("`measure_placement` tool") && p.contains("put `data-divina-edit=\"f1\"` on the placed element itself") && p.contains("until its x and y match these numbers exactly and the tool answers `ok: true`. Then remove the attribute"), "{p}");
+        assert!(p.contains("`measure_placement` tool") && p.contains("call the divina `measure_placement` tool with `edit` set to `f1`") && p.contains("adjust the code until it answers `ok: true`; `edits_applied` is refused until placement is correct."), "{p}");
     }
 
     #[test]

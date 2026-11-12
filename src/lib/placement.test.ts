@@ -1,41 +1,59 @@
 import { expect, test } from "vitest";
-import type { EditRecord } from "@/shared/protocol";
-import { markerSelector, openPlacements, placementProblem } from "./placement";
+import type { DomNode, EditRecord } from "@/shared/protocol";
+import { placementProblem } from "./placement";
 
-const src = { file: "src/App.tsx", line: 4, col: 2, owners: [] };
-const edit = (id: string, snapStep?: number): EditRecord => ({
-  id, kind: "insert", target: src, viewport: { preset: "mobile", width: 390, height: 844 }, scope: "mobile-down",
-  payload: { component: "Button", importFrom: "@/button", anchor: src, position: "after", free: { x: 120, y: 48, width: 76, height: 36, containerWidth: 358, containerHeight: 300, ...(snapStep && { snapStep }) } },
+const src = { file: "src/App.tsx", line: 1, col: 1, owners: [] };
+const edit = (kind: "insert" | "move" = "insert", x = 10): EditRecord => ({
+  id: "e",
+  kind,
+  target: src,
+  viewport: { preset: "mobile", width: 390, height: 800 },
+  scope: "mobile-down",
+  payload: kind === "insert"
+    ? { component: "Button", importFrom: "", anchor: src, position: "after", free: { x, y: 20, width: 50, height: 20, containerWidth: 300, containerHeight: 100 } }
+    : { anchor: src, position: "after", moved: { tag: "button", text: "Save" }, free: { x, y: 20, width: 50, height: 20, containerWidth: 300, containerHeight: 100 } },
+} as EditRecord);
+const node = (tag: string, text = "", x = 10, y = 20, children: DomNode[] = [], components?: string[]): DomNode => ({
+  tag,
+  text,
+  rect: { x, y, width: 50, height: 20 },
+  contentRect: { x: 0, y: 0, width: 300, height: 100 },
+  children,
+  ...(components && { components }),
 });
-const at = (x: number, y: number, matches = 1, viewportWidth = 390) => ({ x, y, containerWidth: 358, matches, viewportWidth });
+const page = (...children: DomNode[]): DomNode => node("body", "", 0, 0, children);
 
-test("a snapped placement must match exactly, a free one within 2px", () => {
-  expect(placementProblem(edit("a", 4), at(120, 48))).toBe("");
-  expect(placementProblem(edit("a", 4), at(121, 48))).toContain("off by 1px, 0px");
-  expect(placementProblem(edit("a"), at(122, 46))).toBe("");
-  expect(placementProblem(edit("a"), at(123, 48))).toContain("should be at x 120, y 48");
-});
-
-test("an ambiguous selector or another viewport is not a pass", () => {
-  expect(placementProblem(edit("a"), at(120, 48, 2))).toContain("matches 2 elements");
-  expect(placementProblem(edit("a"), at(120, 48, 1, 1280))).toContain("can't be checked");
-});
-
-test("open placements are the unmeasured and the off ones", () => {
-  const sent = [edit("a"), edit("b"), edit("c"), { id: "d", kind: "delete", target: src, viewport: edit("a").viewport, scope: "all" } as EditRecord];
-  expect(openPlacements(sent, new Map([["a", ""], ["b", "edit b is off"]]))).toEqual(["edit b is off", "edit c was never checked with measure_placement"]);
-});
-
-test("the measured element and container must be the ones the user placed", () => {
-  const button = { tag: "button", text: "Save", components: ["Primitive.button", "Button"] };
-  expect(placementProblem(edit("a"), { ...at(120, 48), element: button })).toBe("");
-  expect(placementProblem(edit("a"), { ...at(120, 48), element: { tag: "div", text: "", components: ["Card"] } })).toContain("not the root element of the inserted <Button>");
-  expect(placementProblem(edit("a"), { ...at(120, 48), containerWidth: 200 })).toContain("dropped in one 358px wide");
-  const move: EditRecord = { ...edit("m"), kind: "move", payload: { anchor: src, position: "after", free: { x: 120, y: 48, width: 76, height: 36, containerWidth: 358, containerHeight: 300 }, moved: { tag: "h2", text: "Pricing" } } };
-  expect(placementProblem(move, { ...at(120, 48), element: { tag: "h2", text: "Pricing" } })).toBe("");
-  expect(placementProblem(move, { ...at(120, 48), element: { tag: "h2", text: "Features" } })).toContain('not the moved <h2> "Pricing"');
+test("insert passes and viewport mismatch fails", () => {
+  const before = page();
+  const after = page(node("button", "Save", 10, 20, [], ["Button"]));
+  expect(placementProblem(edit(), before, after, 390)).toBe("");
+  expect(placementProblem(edit(), before, after, 1024)).toContain("can't be checked");
 });
 
-test("the marker selector finds the element by edit id", () => {
-  expect(markerSelector("f1")).toBe('[data-divina-edit="f1"]');
+test("insert reports the closest candidate when off", () => {
+  expect(placementProblem(edit(), page(), page(node("button", "Save", 18)), 390))
+    .toContain('closest match <button> "Save" is 8px too far right');
+});
+
+test("new wrapper descends to the inserted component", () => {
+  const wrapper = node("div", "", 10, 20, [node("button", "Save", 10, 20, [], ["Button"])], ["Wrapper"]);
+  expect(placementProblem(edit(), page(), page(wrapper), 390)).toBe("");
+});
+
+test("all after elements with a twin signature are considered new", () => {
+  const existing = node("button", "Save", 10, 20, [], ["Button"]);
+  const added = node("button", "Save", 18, 20, [], ["Button"]);
+  expect(placementProblem(edit(), page(existing), page(existing, added), 390)).toBe("");
+});
+
+test("move passes and a missing moved element is reported", () => {
+  const move = edit("move");
+  expect(placementProblem(move, page(), page(node("button", "Save")), 390)).toBe("");
+  expect(placementProblem(move, page(), page(node("p", "Other")), 390)).toContain("no matching element");
+});
+
+test("a candidate in the wrong width container fails", () => {
+  const after = page(node("button", "Save", 10, 20, [], ["Button"]));
+  after.contentRect!.width = 250;
+  expect(placementProblem(edit(), page(), after, 390)).toContain("no candidate was found in a container 300px wide");
 });

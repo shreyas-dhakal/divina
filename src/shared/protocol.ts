@@ -136,6 +136,8 @@ export interface DomNode {
   tag: string;
   ref?: SourceRef;
   rect: Rect;
+  contentRect?: Rect;
+  components?: string[];
   text?: string;
   classes?: string;
   children: DomNode[];
@@ -161,8 +163,6 @@ export type OverlayToHost =
   | { type: "console-error"; message: string; stack?: string }
   | { type: "screenshot-request"; requestId: string }
   | { type: "screenshot-response"; requestId: string; dataUrl: string }
-  /** Answer to measure-request: `place` as in a free edit (unsnapped), `matches` elements for the selector; or why not. */
-  | { type: "measure-response"; requestId: string; place?: FreePlace; matches?: number; element?: ElementIdentity; error?: string };
 
 export type HostToOverlay =
   | { type: "set-mode"; mode: OverlayMode }
@@ -184,8 +184,6 @@ export type HostToOverlay =
   | { type: "request-snapshot"; requestId: string }
   /** In-page fallback capture; answered with OverlayToHost screenshot-response. */
   | { type: "screenshot-request"; requestId: string }
-  /** Where the first element matching `selector` sits in the content box of `container` (default: its parent). */
-  | { type: "measure-request"; requestId: string; selector: string; container?: string };
 
 export type AgentKind = "claude" | "codex" | "opencode";
 
