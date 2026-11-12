@@ -1,4 +1,4 @@
-import { OWNERS_ATTR, SRC_ATTR, type DomAnchor, type EditRecord, type Position, type SourceRef } from "../../src/shared/protocol.ts";
+import { OWNERS_ATTR, SRC_ATTR, type DomAnchor, type EditRecord, type SourceRef } from "../../src/shared/protocol.ts";
 
 type Loc = Omit<SourceRef, "owners" | "list">;
 
@@ -101,20 +101,6 @@ function nearbyText(element: Element): string {
     if (/^H[1-6]$/.test(parent.tagName)) return visibleText(parent);
   }
   return "";
-}
-
-export function calculateDropPosition(target: Element, x: number, y: number): Position {
-  const rect = target.getBoundingClientRect();
-  const style = getComputedStyle(target.parentElement ?? target);
-  const display = style.display;
-  const horizontal = display.includes("grid")
-    ? style.gridAutoFlow !== "row" && style.gridAutoFlow !== "row dense"
-    : display.includes("flex") && style.flexDirection.startsWith("row");
-  const children = [...target.children].filter((child) => !(child as HTMLElement).dataset.divinaUi);
-  if (children.length === 0 && !display.includes("flex") && !display.includes("grid")) return x < rect.left + rect.width / 2 || y < rect.top + rect.height / 2 ? "inside-start" : "inside-end";
-  return horizontal
-    ? (x < rect.left + rect.width / 2 ? "before" : "after")
-    : (y < rect.top + rect.height / 2 ? "before" : "after");
 }
 
 const SPACING_PROPS: Record<string, string[]> = {

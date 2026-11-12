@@ -28,12 +28,18 @@ export interface Viewport {
 export type Scope = "all" | "tablet-down" | "mobile-down";
 
 export type Position = "before" | "after" | "inside-start" | "inside-end";
+export type InsertAlignment = "start" | "center" | "end";
+/** Cell of a 3×3 grid over a container's free space: x is left/centre/right, y is top/middle/bottom. */
+export interface InsertPlace { x: InsertAlignment; y: InsertAlignment }
 
 export interface InsertPayload {
   component: string;
   importFrom: string;
   anchor: SourceRef;
   position: Position;
+  align?: InsertAlignment;
+  /** Set for a drop on empty space; the agent places it there with layout, not absolute positioning. */
+  place?: InsertPlace;
   /** Set when the component comes from the catalog; the agent installs the library if missing. */
   library?: LibraryRef;
 }
@@ -121,6 +127,10 @@ export type OverlayToHost =
   | { type: "hover"; ref: SourceRef | null; rect: Rect | null }
   | { type: "select"; ref: SourceRef; rect: Rect; computed: Record<string, string> }
   | { type: "edit"; record: EditRecord }
+  /** The user deleted a dropped placeholder: drop its queued insert edit. */
+  | { type: "discard-edit"; id: string }
+  /** Canvas drag of a selected element; the host shows the trash zone unless idle. */
+  | { type: "drag"; state: "idle" | "moving" | "over-trash" }
   | { type: "dom-snapshot"; requestId: string; root: DomNode }
   | { type: "console-error"; message: string; stack?: string }
   | { type: "screenshot-request"; requestId: string }
@@ -131,10 +141,12 @@ export type HostToOverlay =
   /** x/y: drop point in frame (unscaled viewport) coordinates. */
   | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number; library?: LibraryRef }
   /** Host drag in progress over the frame: show the drop indicator at x/y (frame coords). */
-  | { type: "insert-hover"; x: number; y: number }
+  | { type: "insert-hover"; x: number; y: number; component?: string }
   /** Optimistic preview of a Properties edit on the element at record.target; reverted by clear-optimistic. */
   | { type: "preview-edit"; record: EditRecord }
   | { type: "clear-optimistic" }
+  /** The host's trash button in frame coords (outside the frame), for drag-to-delete hit-testing. */
+  | { type: "trash-zone"; rect: Rect }
   | { type: "request-snapshot"; requestId: string }
   /** In-page fallback capture; answered with OverlayToHost screenshot-response. */
   | { type: "screenshot-request"; requestId: string };

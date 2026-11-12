@@ -67,6 +67,33 @@ pub(crate) fn build_prompt(root: &Path, edits: &[EditRecord]) -> String {
             }
         }
         if let EditKind::Insert(p) = &edit.edit {
+            if let Some(align) = p.align {
+                let class = match align {
+                    crate::protocol::InsertAlignment::Start => "self-start",
+                    crate::protocol::InsertAlignment::Center => "self-center",
+                    crate::protocol::InsertAlignment::End => "self-end",
+                };
+                let scoped = match edit.scope {
+                    crate::protocol::Scope::All => class.to_owned(),
+                    crate::protocol::Scope::TabletDown => format!("max-lg:{class}"),
+                    crate::protocol::Scope::MobileDown => format!("max-md:{class}"),
+                };
+                out.push_str(&format!("\n\nEdit {}: align the inserted component with the Tailwind class `{scoped}`.", edit.id));
+            }
+            if let Some(place) = p.place {
+                use crate::protocol::InsertAlignment::{Center, End, Start};
+                let y = match place.y { Start => "top", Center => "middle", End => "bottom" };
+                let x = match place.x { Start => "left", Center => "centre", End => "right" };
+                let scope = match edit.scope {
+                    crate::protocol::Scope::All => "",
+                    crate::protocol::Scope::TabletDown => " Scope the classes with `max-lg:`.",
+                    crate::protocol::Scope::MobileDown => " Scope the classes with `max-md:`.",
+                };
+                out.push_str(&format!(
+                    "\n\nEdit {}: the user dropped <{}> on empty space, in the {y} {x} of its container (a 3×3 grid over the container's content box). Make it render there using layout: for example `self-*`, `justify-*`/`items-*`, `m*-auto`, or a flex/grid wrapper that fills the free space. Never use absolute or fixed positioning.{scope} The purple placeholder shows the spot.",
+                    edit.id, p.component
+                ));
+            }
             if let Some(lib) = &p.library {
                 out.push_str(&format!(
                     "\n\nEdit {id}: <{c}> comes from the component library \"{name}\". If it is not already a dependency of this project, add it with: `{install}`. Usage: {usage}",
@@ -180,6 +207,28 @@ mod tests {
     #[test]
     fn no_edits_give_an_empty_brief() {
         assert_eq!(agent_prompt("/nonexistent".into(), vec![]), "");
+    }
+
+    #[test]
+    fn aligned_insert_gets_scoped_alignment_instruction() {
+        let src = json!({"file": "src/App.tsx", "line": 1, "col": 1, "owners": []});
+        let edits = records(json!([{"id": "align-1", "kind": "insert", "target": src,
+            "viewport": {"preset": "mobile", "width": 390, "height": 844}, "scope": "mobile-down",
+            "payload": {"component": "Button", "importFrom": "@/button", "anchor": src,
+                "position": "after", "align": "center"}}]));
+        assert!(build_prompt(Path::new("/nonexistent"), &edits).contains("align the inserted component with the Tailwind class `max-md:self-center`"));
+    }
+
+    #[test]
+    fn placed_insert_gets_layout_placement_instruction() {
+        let src = json!({"file": "src/App.tsx", "line": 1, "col": 1, "owners": []});
+        let edits = records(json!([{"id": "place-1", "kind": "insert", "target": src,
+            "viewport": {"preset": "tablet", "width": 800, "height": 1000}, "scope": "tablet-down",
+            "payload": {"component": "Progress", "importFrom": "@/progress", "anchor": src,
+                "position": "inside-end", "place": {"x": "center", "y": "center"}}}]));
+        let prompt = build_prompt(Path::new("/nonexistent"), &edits);
+        assert!(prompt.contains("dropped <Progress> on empty space, in the middle centre of its container"));
+        assert!(prompt.contains("Scope the classes with `max-lg:`."));
     }
 
     #[test]

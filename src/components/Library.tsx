@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type DragEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -19,8 +19,13 @@ function stackLabel(s: Stack | null) {
   return [name, major === "0" ? `0.${minor}` : major].filter(Boolean).join(" ");
 }
 
+// WebKit creates no frame for iframes past 1000 per page (lazy ones count too), so a package with
+// thousands of exports (lucide-react) left the preview frame empty. Past this, names only.
+// ponytail: first N in list order; render thumbnails as they scroll into view if users miss them.
+const MAX_THUMBS = 60;
+
 /** `previewUrl` is the proxied dev server; Vite projects get live thumbnails from it. */
-export function Library({ root, previewUrl, onDragging }: { root: string; previewUrl: string | null; onDragging: (d: boolean) => void }) {
+export function Library({ root, previewUrl, onDragging }: { root: string; previewUrl: string | null; onDragging: (component: string | null) => void }) {
   const [components, setComponents] = useState<LibraryComponent[]>([]);
   /** Thumbnail result per `importFrom#name`; failed or empty ones fall back to the name. */
   const [rendered, setRendered] = useState<Record<string, boolean>>({});
@@ -67,6 +72,8 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
 
   const q = query.toLowerCase();
   const shown = components.filter((c) => c.name.toLowerCase().includes(q));
+  /** Thumbnail iframes rendered so far in this pass; see MAX_THUMBS. */
+  let thumbs = 0;
   const lib = catalog.find((l) => l.id === selected);
   const items = [{ value: PROJECT, label: "Your project" }, ...catalog.map((l) => ({ value: l.id, label: l.name }))];
 
@@ -103,17 +110,19 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
               <h3 className="px-2 pb-1 text-xs font-medium text-muted-foreground uppercase">{SOURCES[src]}</h3>
               {group.map((c) => {
                 const key = `${c.importFrom}#${c.name}`;
-                const thumb = c.previewable && previewUrl && rendered[key] !== false;
+                const thumb = c.previewable && previewUrl && rendered[key] !== false && thumbs++ < MAX_THUMBS;
                 const src = previewUrl && `${new URL("/.divina/preview.html", previewUrl)}?m=${encodeURIComponent(c.importFrom)}&n=${encodeURIComponent(c.name)}`;
                 return (
                 <div
                   key={key}
                   draggable
                   onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = "copy";
                     e.dataTransfer.setData(DRAG_MIME, JSON.stringify(c));
-                    onDragging(true);
+                    dragChip(e, c.name);
+                    onDragging(c.name);
                   }}
-                  onDragEnd={() => onDragging(false)}
+                  onDragEnd={() => onDragging(null)}
                   className="cursor-grab rounded px-2 py-1 hover:bg-muted"
                   title={c.importFrom}
                 >
@@ -170,7 +179,18 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
   );
 }
 
-function CatalogGrid({ lib, query, onDragging }: { lib: CatalogLibrary; query: string; onDragging: (d: boolean) => void }) {
+/** A small named chip under the cursor instead of the browser's snapshot of the whole card. */
+function dragChip(e: DragEvent, name: string) {
+  const chip = document.createElement("div");
+  chip.textContent = name;
+  chip.className = "fixed -top-96 rounded-md border border-primary bg-background px-3 py-1 text-xs font-medium text-primary shadow-lg";
+  document.body.append(chip);
+  e.dataTransfer.setDragImage(chip, 12, 12);
+  // The drag image is captured synchronously, so the chip can go on the next tick.
+  setTimeout(() => chip.remove());
+}
+
+function CatalogGrid({ lib, query, onDragging }: { lib: CatalogLibrary; query: string; onDragging: (component: string | null) => void }) {
   const shown = lib.components.filter((c) => c.name.toLowerCase().includes(query));
   if (!shown.length) return <p className="p-2 text-muted-foreground">No components found.</p>;
   return (
@@ -182,10 +202,12 @@ function CatalogGrid({ lib, query, onDragging }: { lib: CatalogLibrary; query: s
           onDragStart={(e) => {
             // `library` marks a catalog drop; Workspace forwards it in preview-insert.
             const library = { id: lib.id, name: lib.name, install: lib.install, usage: c.usage };
+            e.dataTransfer.effectAllowed = "copy";
             e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ name: c.name, importFrom: lib.importFrom ?? "", library }));
-            onDragging(true);
+            dragChip(e, c.name);
+            onDragging(c.name);
           }}
-          onDragEnd={() => onDragging(false)}
+          onDragEnd={() => onDragging(null)}
           className="cursor-grab overflow-hidden rounded border hover:bg-muted"
           title={c.usage || c.name}
         >

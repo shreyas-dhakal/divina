@@ -56,8 +56,11 @@ You can change all of this later from **Run command…** under the preview.
 - **Size:** pick Desktop, Tablet, Mobile or a custom size in the toolbar. Edits at Desktop apply everywhere. Edits at Tablet or Mobile apply at that size and smaller.
 - **Click** an element to select it. **Drag** it to move it; the purple line shows where it will land.
 - **Resize** with the corner handle, and **double-click** text to edit it.
+- **Delete:** drag a selected element to the red trash button that appears in the bottom-right corner of the preview area, or press Delete. This also removes a component you dropped from the library before you send it.
 - **Properties** (right panel): change text, classes, padding, margin, gap, width and height.
-- **Library** (left panel): drag a component into the frame. On Vite projects each component shows a live thumbnail rendered by your dev server. To install more, type a command in the installer box, for example `pnpm dlx shadcn@latest add card`.
+- **Library** (left panel): drag a component into the frame. A dashed pill with the component name shows where it will land, with red labels giving the spacing to its neighbours. On Vite projects each component shows a live thumbnail rendered by your dev server. To install more, type a command in the installer box, for example `pnpm dlx shadcn@latest add card`.
+- In flex containers, drop near the start, centre or end of the cross axis to preview and request that alignment from the agent.
+- **Empty space:** drop anywhere clear of other elements and a 3×3 grid shows where it will go (for example the middle of the page, or the top-right corner). The agent builds that placement with layout, so it stays responsive.
 - **Component libraries:** the dropdown above the library lists ready-made libraries for your stack (shadcn/ui for React, shadcn-vue for Vue, shadcn-svelte for Svelte, Thaw for Leptos), with pictures of each component. Drag one in and the agent installs the library if needed when you send your edits to it. **Add library…** adds your own, for this project or all of them.
 - **Any framework:** drops work even without source tagging, for example in a Rust, Vue or Django frontend. Divina searches your code for the text near the drop and the agent picks the spot, checking with a screenshot.
 

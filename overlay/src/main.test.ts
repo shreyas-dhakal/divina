@@ -1,6 +1,24 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
-import { applyPreview, buildDomAnchor, calculateDropPosition, resolveSourceRef } from "./overlay.js";
+import { describe, expect, it, vi } from "vitest";
+import { applyPreview, buildDomAnchor, resolveSourceRef } from "./overlay.js";
+import { pickDropSlot } from "./slots.js";
+import { detectAlignment } from "./align.js";
+
+describe("cross-axis alignment", () => {
+  const rect = { x: 0, y: 0, width: 200, height: 100 };
+  it("snaps flex row pointers to start, center and end on the cross axis", () => {
+    expect(detectAlignment(rect, "row", { x: 20, y: 3 }, true)).toBe("start");
+    expect(detectAlignment(rect, "row", { x: 20, y: 50 }, true)).toBe("center");
+    expect(detectAlignment(rect, "row", { x: 20, y: 98 }, true)).toBe("end");
+  });
+  it("uses the horizontal cross axis for columns and ignores non-flex containers", () => {
+    expect(detectAlignment(rect, "column", { x: 2, y: 20 }, true)).toBe("start");
+    expect(detectAlignment(rect, "column", { x: 100, y: 20 }, true)).toBe("center");
+    expect(detectAlignment(rect, "column", { x: 198, y: 20 }, true)).toBe("end");
+    expect(detectAlignment(rect, "row", { x: 0, y: 50 }, false)).toBeNull();
+    expect(detectAlignment(rect, "row", { x: 0, y: 20 }, true)).toBeNull();
+  });
+});
 
 describe("source references", () => {
   it("reads file:line:col tags, the owner chain and a map index", () => {
@@ -23,23 +41,75 @@ describe("source references", () => {
   });
 });
 
-describe("drop positions", () => {
-  it("chooses before or after along the parent's flex direction", () => {
-    const parent = document.createElement("div");
-    parent.style.display = "flex";
-    parent.style.flexDirection = "row";
-    document.body.append(parent);
-    const target = document.createElement("div");
-    parent.append(target);
-    target.getBoundingClientRect = () => ({ x: 10, y: 20, width: 100, height: 40, top: 20, right: 110, bottom: 60, left: 10, toJSON() {} });
-    expect(calculateDropPosition(target, 20, 30)).toBe("before");
-    expect(calculateDropPosition(target, 100, 30)).toBe("after");
+describe("drop slots", () => {
+  const setup = (direction = "row") => {
+    document.body.innerHTML = `<main><section class="flex-col"><button>A</button><button>B</button></section></main>`;
+    const container = document.querySelector("section")!;
+    container.style.display = "flex";
+    container.style.flexDirection = direction;
+    const children = [...container.children];
+    const box = (left: number, top: number, width: number, height: number) => ({ x: left, y: top, width, height, left, top, right: left + width, bottom: top + height, toJSON() {} });
+    container.getBoundingClientRect = () => box(0, 0, 200, 100);
+    children[0]!.getBoundingClientRect = () => box(0, 0, direction.startsWith("row") ? 80 : 200, direction.startsWith("row") ? 100 : 40);
+    children[1]!.getBoundingClientRect = () => box(direction.startsWith("row") ? 120 : 0, direction.startsWith("row") ? 0 : 60, direction.startsWith("row") ? 80 : 200, direction.startsWith("row") ? 100 : 40);
+    return { container, children };
+  };
+  const pick = (x: number, y: number) => pickDropSlot(x, y, (el) => !!el && el !== document.body && el !== document.documentElement && !el.closest("[data-divina-ui], [data-divina-placeholder]"), (el) => el);
+  it("uses row and column layout axes and picks the nearest slot between siblings", () => {
+    const { children } = setup("row");
+    document.elementFromPoint = () => children[0]!;
+    const row = pick(100, 20)!;
+    expect([row.axis, row.index, row.position, row.anchor]).toEqual(["row", 1, "after", children[0]]);
+    setup("column");
+    const vertical = document.querySelector("button")!;
+    document.elementFromPoint = () => vertical;
+    expect(pick(20, 50)?.axis).toBe("column");
   });
-
-  it("uses inside positions for a container without layout children", () => {
-    const container = document.createElement("div");
-    container.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 100, top: 0, right: 100, bottom: 100, left: 0, toJSON() {} });
-    expect(calculateDropPosition(container, 50, 50)).toBe("inside-end");
+  it("moves a leaf hit to its parent container and maps slots to anchors", () => {
+    const { container, children } = setup("row");
+    document.elementFromPoint = () => children[0]!;
+    const slot = pick(4, 20)!;
+    expect(slot.container).toBe(container);
+    expect([slot.index, slot.position, slot.anchor]).toEqual([0, "before", children[0]]);
+  });
+  it("walks past a text-only inline-flex button to its flex column", () => {
+    document.body.innerHTML = `<main><section><button>text</button><button>next</button></section></main>`;
+    const container = document.querySelector("section")!;
+    const [button, next] = [...container.children];
+    container.style.display = "flex";
+    container.style.flexDirection = "column";
+    (button as HTMLElement).style.display = "inline-flex";
+    const box = (left: number, top: number, width: number, height: number) => ({ x: left, y: top, width, height, left, top, right: left + width, bottom: top + height, toJSON() {} });
+    container.getBoundingClientRect = () => box(0, 0, 100, 100);
+    button!.getBoundingClientRect = () => box(0, 0, 100, 40);
+    next!.getBoundingClientRect = () => box(0, 60, 100, 40);
+    document.elementFromPoint = () => button!;
+    expect(pick(10, 10)).toMatchObject({ container, axis: "column", index: 0, position: "before", anchor: button });
+    expect(pick(10, 55)).toMatchObject({ container, axis: "column", index: 1, position: "after", anchor: button });
+  });
+  it("walks past an inline-flex button with an icon child", () => {
+    document.body.innerHTML = `<main><section><button><svg></svg>Save</button></section></main>`;
+    const container = document.querySelector("section")!;
+    const button = container.querySelector("button")!;
+    container.style.display = "flex";
+    container.style.flexDirection = "column";
+    button.style.display = "inline-flex";
+    container.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 100, left: 0, top: 0, right: 100, bottom: 100, toJSON() {} });
+    button.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 40, left: 0, top: 0, right: 100, bottom: 40, toJSON() {} });
+    document.elementFromPoint = () => button.querySelector("svg");
+    // jsdom computes inline-flex as flex; report what a browser does.
+    const real = getComputedStyle;
+    const spy = vi.spyOn(window, "getComputedStyle").mockImplementation((el) => el === button ? ({ ...real(el), display: "inline-flex" }) as CSSStyleDeclaration : real(el));
+    expect(pick(10, 35)).toMatchObject({ container, position: "after", anchor: button });
+    spy.mockRestore();
+  });
+  it("returns inside-start for an empty container", () => {
+    document.body.innerHTML = "<main><section></section></main>";
+    const container = document.querySelector("section")!;
+    container.style.display = "flex";
+    container.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 80, left: 0, top: 0, right: 100, bottom: 80, toJSON() {} });
+    document.elementFromPoint = () => container;
+    expect(pick(50, 40)).toMatchObject({ container, index: 0, total: 1, position: "inside-start", anchor: container });
   });
 });
 
@@ -76,15 +146,52 @@ describe("untagged library insert", () => {
   it("sends an edit with a DOM anchor and empty source target", async () => {
     const sent: MessageEvent[] = [];
     window.parent.postMessage = ((message: unknown) => sent.push({ data: message } as MessageEvent)) as typeof window.parent.postMessage;
-    document.body.innerHTML = "<main><h1>Title</h1></main>";
+    document.body.innerHTML = "<main><section style='display:flex;flex-direction:column'><h1>Title</h1><p>Text</p></section></main>";
+    const section = document.querySelector("section")!;
     const target = document.querySelector("h1")!;
     document.elementFromPoint = () => target;
+    const box = (x: number, y: number, width: number, height: number) => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON() {} });
+    section.getBoundingClientRect = () => box(0, 0, 200, 100);
+    target.getBoundingClientRect = () => box(0, 0, 200, 40);
+    document.querySelector("p")!.getBoundingClientRect = () => box(0, 60, 200, 40);
     await import("./main.js");
-    window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data: { type: "preview-insert", component: "Button", importFrom: "@/button", x: 5, y: 5, library: { id: "ui", name: "UI", install: "", usage: "<Button/>" } } }));
-    const edit = sent.map((event) => event.data as { type?: string; record?: { target: { file: string }; dom?: { selector: string }; payload?: { library?: { id: string } } } }).find((message) => message.type === "edit")!;
+    window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data: { type: "preview-insert", component: "Button", importFrom: "@/button", x: 2, y: 5, library: { id: "ui", name: "UI", install: "", usage: "<Button/>" } } }));
+    const edit = sent.map((event) => event.data as { type?: string; record?: { target: { file: string }; dom?: { selector: string }; payload?: { align?: string; library?: { id: string } } } }).find((message) => message.type === "edit")!;
     expect(edit.record?.target.file).toBe("");
-    expect(edit.record?.dom?.selector).toBe("main > h1");
+    expect(edit.record?.dom?.selector).toBe("main > section > h1");
     expect(edit.record?.payload?.library?.id).toBe("ui");
+    expect(edit.record?.payload?.align).toBe("start");
+    expect(document.querySelector("[data-divina-placeholder]")?.getAttribute("style")).toContain("align-self: flex-start");
+  });
+
+  it("deletes a dropped placeholder by key and a tagged element by dragging it to the trash", async () => {
+    const sent: { type: string; id?: string; state?: string; record?: { id: string; kind: string; target: { file: string } } }[] = [];
+    window.parent.postMessage = ((message: never) => sent.push(message)) as typeof window.parent.postMessage;
+    await import("./main.js");
+    window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data: { type: "set-mode", mode: "select" } }));
+    const box = document.querySelector<HTMLElement>("[data-divina-placeholder]")!;
+    box.click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete" }));
+    expect(sent).toContainEqual({ type: "discard-edit", id: box.dataset.divinaPlaceholder });
+    expect(box.isConnected).toBe(false);
+
+    document.body.innerHTML = `<p data-divina-src="src/App.tsx:3:5">Hi</p>`;
+    const p = document.querySelector("p")!;
+    p.click();
+    // The host's trash button sits outside the frame, past its bottom-right corner.
+    window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data: { type: "trash-zone", rect: { x: 1050, y: 700, width: 56, height: 56 } } }));
+    const at = (type: string, x: number, y: number) => p.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y }));
+    at("pointerdown", 10, 10);
+    at("pointermove", 1070, 720);
+    expect(sent).toContainEqual({ type: "drag", state: "over-trash" });
+    expect(document.querySelectorAll("[data-divina-ui] p")).toHaveLength(1); // follower clone
+    at("pointerup", 1070, 720);
+    expect(sent[sent.length - 2]).toEqual({ type: "drag", state: "idle" });
+    const del = sent.find((m) => m.record?.kind === "delete")!;
+    expect(del.record?.target.file).toBe("src/App.tsx");
+    expect(p.style.display).toBe("none");
+    expect(p.style.opacity).toBe("");
+    expect(document.querySelectorAll("[data-divina-ui] p")).toHaveLength(0);
   });
 });
 
@@ -110,5 +217,50 @@ describe("optimistic Properties preview", () => {
     el.className = "flex";
     applyPreview(el, { id: "3", kind: "style", target, viewport, scope: "all", payload: { classes: "grid gap-2" } });
     expect(el.className).toBe("grid gap-2");
+  });
+});
+
+describe("library drag ghost", () => {
+  const box = (left: number, top: number, width: number, height: number) => ({ x: left, y: top, width, height, left, top, right: left + width, bottom: top + height, toJSON() {} });
+  const post = (data: object) => window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data }));
+  const setup = async () => {
+    window.parent.postMessage = (() => {}) as typeof window.parent.postMessage;
+    await import("./main.js");
+    document.body.innerHTML = `<main><section><button>A</button><button>B</button></section></main>`;
+    const container = document.querySelector("section")!;
+    container.style.display = "flex";
+    const [a, b] = [...container.children];
+    container.getBoundingClientRect = () => box(0, 0, 200, 100);
+    a!.getBoundingClientRect = () => box(0, 0, 80, 100);
+    b!.getBoundingClientRect = () => box(120, 0, 80, 100);
+    document.elementFromPoint = (x) => (x < 0 ? null : a!);
+    const ghost = () => container.querySelector("[data-divina-ui]");
+    return { container, a: a!, b: b!, ghost };
+  };
+  it("sits at the slot, holds it while the pointer is over it, and leaves with the hover", async () => {
+    const { container, a, ghost } = await setup();
+    post({ type: "insert-hover", x: 100, y: 20 });
+    const element = ghost()!;
+    expect([...container.children]).toEqual([a, element, container.children[2]]);
+    expect((element as HTMLElement).style.pointerEvents).toBe("none");
+    // Siblings unchanged, so x=170 alone would pick "after B"; the pointer is over the ghost, so the slot holds.
+    element.getBoundingClientRect = () => box(80, 0, 100, 100);
+    post({ type: "insert-hover", x: 170, y: 20 });
+    expect(container.children[1]).toBe(element);
+    post({ type: "insert-hover", x: 190, y: 20 });
+    expect(container.lastElementChild).toBe(element);
+    const labels = () => [...document.querySelectorAll("[data-divina-ui]")].filter((el) => /^\d+px/.test(el.textContent ?? ""));
+    expect(labels()).not.toHaveLength(0);
+    post({ type: "insert-hover", x: -1, y: -1 });
+    expect(ghost()).toBeNull();
+    expect(labels()).toHaveLength(0);
+  });
+  it("is replaced on drop by the placeholder in the same slot", async () => {
+    const { container, a, b, ghost } = await setup();
+    post({ type: "insert-hover", x: 100, y: 20 });
+    post({ type: "preview-insert", component: "Card", importFrom: "@/card", x: 100, y: 20 });
+    expect(ghost()).toBeNull();
+    expect([...container.children].map((el) => el.textContent)).toEqual(["A", "Card", "B"]);
+    expect([container.children[0], container.children[2]]).toEqual([a, b]);
   });
 });

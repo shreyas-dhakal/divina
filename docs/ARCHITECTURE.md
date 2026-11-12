@@ -100,15 +100,18 @@ All are registered in `src-tauri/src/lib.rs`, and the typed wrappers are in `src
 
 ### Editing
 
-1. The overlay (`overlay/src/main.ts`, with pure helpers in `overlay/src/overlay.ts` and vitest tests):
+1. The overlay (`overlay/src/main.ts`, with helpers in `overlay/src/overlay.ts`, slot selection in `overlay/src/slots.ts` and alignment snaps in `overlay/src/align.ts`, empty-space placement zones in `overlay/src/zones.ts`, covered by vitest tests):
    - reads the tags
    - resolves the user-code target with `getUserCodeTarget`, which skips `components/ui/` and `node_modules/`
-   - computes drop positions from the parent's flex or grid direction
+   - `pickDropSlot` selects the innermost layout container and nearest child insertion slot from pointer coordinates; the same result drives the purple container highlight, guide, preview insertion, and canvas move edit
+   - flex library drops detect a cross-axis alignment from the container geometry; the magenta guide and optional `InsertPayload.align` use that same result
    - for drops on untagged elements, builds a `DomAnchor` (`buildDomAnchor`) and sends the insert with an empty `target.file`
    - applies optimistic DOM changes with a revert log
    - sends `edit` records
 2. The host stamps each record with the current viewport and `scopeFor` (`src/lib/viewport.ts`).
 3. **Library drags** don't send pointer events into the iframe (`dragDropEnabled=false` in `tauri.conf.json` keeps HTML5 drag in the webview). The host sends `insert-hover` and `preview-insert` with frame coordinates from `toFrameCoords`. Catalog cards add `library` to the drag JSON, and `preview-insert` forwards it into `InsertPayload.library`.
+   - On `insert-hover`, `showGhost` in `main.ts` places a `data-divina-ui` ghost at the slot (same `placeAt` mapping as `dropInsert`), so `usable` keeps it out of slot geometry and snapshots. `hoverSlot` returns the ghost's slot while the pointer is inside the ghost's rect, so the reflow it causes can't flip the slot. `dropInsert` uses `hoverSlot` too, then removes the ghost.
+   - `showSpacing` draws the red gap lines and labels from `measureGaps` and `spacingLabel` (pure helpers in `overlay/src/guides.ts`).
 4. **Library thumbnails:** `list_components` writes `.divina/preview.html` + `preview.tsx` (a lazy `import()` per module) for Vite projects. `Library` loads `<proxy>/.divina/preview.html?m=<importFrom>&n=<name>` in `pointer-events-none` iframes; the page posts `{divinaPreview: "importFrom#name", ok}` to the parent.
 5. **Properties edits** send `preview-edit`. `clear-optimistic` reverts everything.
 
