@@ -1,4 +1,4 @@
-import type { DomAnchor, DomNode, EditRecord, ElementIdentity, FreePlace, HostToOverlay, InsertPayload, InsertPlace, LibraryRef, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
+import type { DomAnchor, DomNode, EditRecord, FreePlace, HostToOverlay, InsertPayload, InsertPlace, LibraryRef, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
 import { applyPreview, buildDomAnchor, componentName, getUserCodeTarget, identify, placeIn, resolveSourceRef, snapOffset } from "./overlay.js";
 import { measureGaps, spacingLabel } from "./guides.js";
 import { pickDropSlot, type DropSlot } from "./slots.js";
@@ -293,20 +293,7 @@ function freeAt(element: Element, container: Element): FreePlace {
   const at = placeIn(element.getBoundingClientRect(), contentRect(container));
   return { ...at, x: snapOffset(at.x, snapStep), y: snapOffset(at.y, snapStep), ...(snapStep > 0 && { snapStep }) };
 }
-/** Answers the agent's `measure_placement`: the same numbers as a free edit, read from the code it just wrote. */
-function measure(selector: string, containerSelector?: string): { place: FreePlace; matches: number; element: ElementIdentity } | { error: string } {
-  try {
-    const found = document.querySelectorAll(selector);
-    const element = found[0];
-    if (!element) return { error: `Nothing matches ${selector}.` };
-    const container = containerSelector ? document.querySelector(containerSelector) : element.parentElement;
-    if (!container) return { error: containerSelector ? `Nothing matches ${containerSelector}.` : "The element has no parent." };
-    if (!container.contains(element) || container === element) return { error: `${containerSelector} does not contain the element.` };
-    return { place: placeIn(element.getBoundingClientRect(), contentRect(container)), matches: found.length, element: identify(element) };
-  } catch (e) {
-    return { error: String(e) };
-  }
-}
+
 function showSnapGrid(container: Element | null) {
   if (!container || snapStep <= 0) { snapGuide.style.display = "none"; return; }
   const box = contentRect(container);
@@ -438,10 +425,13 @@ function showAlignment(slot: DropSlot | null, alignment: CrossAlignment | null) 
     ? { left: "0", top: alignment === "start" ? "2px" : "-17px" }
     : { left: "2px", top: "0" });
 }
-function snapshot(element: Element): DomNode {
-  const text = element.children.length ? undefined : (element.textContent ?? "").trim().slice(0, 160) || undefined;
+export function snapshot(element: Element): DomNode {
+  const hidden = (node: Element | null): boolean => !!node && (getComputedStyle(node).display === "none" || getComputedStyle(node).visibility === "hidden" || hidden(node.parentElement));
+  const text = hidden(element) ? undefined : [...element.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE && !node.parentElement?.closest("script, style")).map((node) => node.textContent ?? "").join(" ").replace(/\s+/g, " ").trim().slice(0, 160) || undefined;
   const classes = [...element.classList].slice(0, 12);
-  const node: DomNode = { tag: element.tagName.toLowerCase(), rect: rectOf(element), children: [...element.children].filter(usable).slice(0, 40).map(snapshot) };
+  const node: DomNode = { tag: element.tagName.toLowerCase(), rect: rectOf(element), contentRect: contentRect(element), children: [...element.children].filter(usable).map(snapshot) };
+  const identity = identify(element);
+  if (identity.components) node.components = identity.components;
   const ref = resolveSourceRef(element);
   if (ref) node.ref = ref;
   if (text) node.text = text;
@@ -804,9 +794,6 @@ function receive(event: MessageEvent<HostToOverlay>) {
       break;
     case "screenshot-request":
       if (message.requestId) void renderScreenshot(message.requestId);
-      break;
-    case "measure-request":
-      if (message.requestId) send({ type: "measure-response", requestId: message.requestId, ...measure(message.selector, message.container) });
       break;
   }
 }

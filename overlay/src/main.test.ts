@@ -521,3 +521,24 @@ describe("free placement", () => {
     expect(sent.filter((m) => m.record?.kind === "move").pop()!.record!.payload.free).toBeUndefined();
   });
 });
+
+describe("page record", () => {
+  it("captures full nested page geometry and excludes overlay nodes", async () => {
+    const { snapshot } = await import("./main.js");
+    const root = document.createElement("main");
+    root.innerHTML = `<section><button>Save</button></section>`;
+    const section = root.firstElementChild!;
+    const button = section.firstElementChild!;
+    Object.assign(button, { __reactFiber$test: { type: "button", return: { type: { name: "Button" } } } });
+    section.getBoundingClientRect = () => ({ x: 5, y: 8, width: 300, height: 100, left: 5, top: 8, right: 305, bottom: 108, toJSON() {} });
+    button.getBoundingClientRect = () => ({ x: 15, y: 28, width: 60, height: 24, left: 15, top: 28, right: 75, bottom: 52, toJSON() {} });
+    for (let i = 0; i < 45; i++) root.appendChild(document.createElement("i"));
+    const overlay = document.createElement("div");
+    overlay.dataset.divinaUi = "true";
+    root.appendChild(overlay);
+    const record = snapshot(root);
+    expect(record.children[0]?.children[0]).toMatchObject({ tag: "button", text: "Save", components: ["Button"], rect: { x: 15, y: 28, width: 60, height: 24 } });
+    expect(record.children[0]?.contentRect).toMatchObject({ x: 5, y: 8, width: 300 });
+    expect(record.children).toHaveLength(46);
+  });
+});

@@ -1,42 +1,62 @@
-import type { EditRecord, ElementIdentity, FreePlace } from "@/shared/protocol";
+import type { DomNode, EditRecord } from "@/shared/protocol";
 
-const freeOf = (e: EditRecord): FreePlace | undefined => (e.kind === "insert" || e.kind === "move" ? e.payload.free : undefined);
+type PageRecord = DomNode;
+const freeOf = (e: EditRecord) => e.kind === "insert" || e.kind === "move" ? e.payload.free : undefined;
+const signature = (n: DomNode) => JSON.stringify([n.tag, n.text ?? "", n.components ?? []]);
+const shown = (n: DomNode) => `<${n.tag}>${n.text ? ` "${n.text}"` : ""}`;
 
-/**
- * The agent puts this attribute, with the edit's id, on the element it placed while it works, so Divina
- * finds that element itself on any framework. An id Divina set in the DOM would not survive the
- * re-render from the agent's new source, so it has to be in the code, and has to be gone at the end.
- */
-export const MARKER = "data-divina-edit";
-export const markerSelector = (id: string) => `[${MARKER}=${JSON.stringify(id)}]`;
-
-/** What `measure_placement` found for a sent edit, as the overlay and host report it. */
-export interface Measured { x: number; y: number; containerWidth: number; matches: number; viewportWidth: number; element?: ElementIdentity }
-
-/**
- * Why a measured element is not where the edit put it; "" when it is. Grid-snapped edits must match
- * exactly, others within 2px. The text goes to the agent, and to the user if the agent gives up.
- * The agent picks the selectors, so the element and container are checked against what the user
- * dragged: an insert must be the inserted component, a move the same tag and text, and the container
- * as wide as the one dropped on (its height may grow with the new content).
- */
-export function placementProblem(edit: EditRecord, m: Measured): string {
+export function placementProblem(edit: EditRecord, before: PageRecord | undefined, after: PageRecord, viewportWidth: number): string {
   const free = freeOf(edit);
   if (!free) return "";
-  if (m.viewportWidth !== edit.viewport.width) return `edit ${edit.id} was placed at a ${edit.viewport.width}px wide viewport but the preview is at ${m.viewportWidth}px, so it can't be checked`;
-  if (m.matches !== 1) return `edit ${edit.id}: the selector matches ${m.matches} elements; give one that matches only the placed element`;
-  const el = m.element, shown = el ? `<${el.tag}>${el.text ? ` "${el.text}"` : ""}` : "";
-  // Component names need React or Vue dev data; without them an insert's identity can't be checked.
-  if (edit.kind === "insert" && el?.components && !el.components.includes(edit.payload.component)) return `edit ${edit.id}: the selector names ${shown} (${el.components.join(", ")}), not the root element of the inserted <${edit.payload.component}>`;
-  const moved = edit.kind === "move" ? edit.payload.moved : undefined;
-  if (moved && el && (el.tag !== moved.tag || el.text !== moved.text)) return `edit ${edit.id}: the selector names ${shown}, not the moved <${moved.tag}>${moved.text ? ` "${moved.text}"` : ""}`;
-  if (Math.abs(m.containerWidth - free.containerWidth) > 2) return `edit ${edit.id}: measured in a container ${m.containerWidth}px wide, but it was dropped in one ${free.containerWidth}px wide; pass that container as \`container\``;
-  const dx = m.x - free.x, dy = m.y - free.y, slack = free.snapStep ? 0 : 2;
-  if (Math.abs(dx) <= slack && Math.abs(dy) <= slack) return "";
-  return `edit ${edit.id} is at x ${m.x}, y ${m.y} but should be at x ${free.x}, y ${free.y} (off by ${dx}px, ${dy}px)`;
-}
+  if (edit.viewport.width !== viewportWidth) return `edit ${edit.id} was placed at a ${edit.viewport.width}px wide viewport but the preview is at ${viewportWidth}px, so it can't be checked`;
+  if (!before) return `edit ${edit.id}: placement check needs the edits to be sent from Divina`;
 
-/** Free placements among the sent edits that are unmeasured or off; `checks` holds the last `placementProblem` per edit id. */
-export function openPlacements(sent: EditRecord[], checks: Map<string, string>): string[] {
-  return sent.filter(freeOf).map((e) => checks.get(e.id) ?? `edit ${e.id} was never checked with measure_placement`).filter(Boolean);
+  const entries: Array<{ node: DomNode; ancestors: DomNode[] }> = [];
+  const visit = (node: DomNode, ancestors: DomNode[]) => {
+    entries.push({ node, ancestors });
+    for (const child of node.children) visit(child, [...ancestors, node]);
+  };
+  visit(after, []);
+
+  let candidates: Array<{ node: DomNode; ancestors: DomNode[] }>;
+  if (edit.kind === "insert") {
+    const beforeCounts = new Map<string, number>();
+    for (const node of flatten(before)) beforeCounts.set(signature(node), (beforeCounts.get(signature(node)) ?? 0) + 1);
+    const afterCounts = new Map<string, number>();
+    for (const { node } of entries) afterCounts.set(signature(node), (afterCounts.get(signature(node)) ?? 0) + 1);
+    const newSignatures = new Set([...afterCounts].filter(([sig, count]) => count > (beforeCounts.get(sig) ?? 0)).map(([sig]) => sig));
+    let changed = entries.filter(({ node }) => newSignatures.has(signature(node)));
+    if (entries.some(({ node }) => node.components?.length)) changed = changed.filter(({ node }) => node.components?.includes(edit.payload.component));
+    const candidateSet = new Set(changed.map(({ node }) => node));
+    candidates = changed.filter(({ ancestors }) => !ancestors.some((ancestor) => candidateSet.has(ancestor)));
+    candidates = candidates.map((entry) => {
+      let current = entry;
+      while (current.node.children.length === 1) {
+        const child = current.node.children[0];
+        const childEntry = changed.find((candidate) => candidate.node === child);
+        if (!childEntry) break;
+        current = childEntry;
+      }
+      return current;
+    });
+  } else if (edit.kind === "move" && edit.payload?.moved) {
+    const moved = edit.payload.moved;
+    candidates = entries.filter(({ node }) => node.tag === moved.tag && (node.text ?? "") === moved.text && (!moved.components || !node.components || JSON.stringify(moved.components) === JSON.stringify(node.components)));
+  } else return "";
+
+  if (!candidates.length) return `edit ${edit.id}: ${edit.kind === "insert" ? "no new element" : "no matching element"} was found`;
+  let closest: { node: DomNode; dx: number; dy: number } | undefined;
+  for (const { node, ancestors } of candidates) for (const container of ancestors) {
+    const box = container.contentRect;
+    if (!box || Math.abs(box.width - free.containerWidth) > 2) continue;
+    const dx = Math.round(node.rect.x - box.x) - free.x, dy = Math.round(node.rect.y - box.y) - free.y;
+    if (!closest || Math.hypot(dx, dy) < Math.hypot(closest.dx, closest.dy)) closest = { node, dx, dy };
+    const slack = free.snapStep ? 0 : 2;
+    if (Math.abs(dx) <= slack && Math.abs(dy) <= slack) return "";
+  }
+  if (!closest) return `edit ${edit.id}: no candidate was found in a container ${free.containerWidth}px wide`;
+  const x = closest.dx < 0 ? `${Math.abs(closest.dx)}px too far left` : `${closest.dx}px too far right`;
+  const y = closest.dy < 0 ? `${Math.abs(closest.dy)}px too high` : `${closest.dy}px too low`;
+  return `edit ${edit.id}: closest match ${shown(closest.node)} is ${x} and ${y}`;
 }
+function flatten(root: PageRecord): PageRecord[] { return [root, ...root.children.flatMap(flatten)]; }

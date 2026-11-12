@@ -14,11 +14,12 @@ import { usePanelRef } from "react-resizable-panels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { installMcpBridge, type McpRequest } from "@/lib/mcpBridge";
-import { MARKER, markerSelector, openPlacements, placementProblem, type Measured } from "@/lib/placement";
+import { placementProblem } from "@/lib/placement";
 import { PRESETS, scopeFor } from "@/lib/viewport";
 import type {
   AgentInfo,
   DevServerStatus,
+  DomNode,
   EditRecord,
   HostToOverlay,
   LibraryComponent,
@@ -97,8 +98,7 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   const appliedRef = useRef<EditRecord[]>([]);
   /** Checkpoints taken before each send, newest last; Undo walks back through them. */
   const runCheckpoints = useRef<string[]>([]);
-  /** Last measure_placement verdict per sent edit ("" = in place), and how often edits_applied was refused for them. */
-  const placementChecks = useRef(new Map<string, string>());
+  const beforeRecords = useRef(new Map<string, import("@/shared/protocol").DomNode>());
   const refusals = useRef(0);
   const [hasCheckpoint, setHasCheckpoint] = useState(false);
   const editsRef = useRef(edits);
@@ -166,7 +166,6 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       else if (msg.type === "discard-edit") setEdits((q) => q.filter((e) => e.id !== msg.id));
       else if (msg.type === "dom-snapshot") pending.current.get(msg.requestId)?.(msg.root);
       else if (msg.type === "screenshot-response") pending.current.get(msg.requestId)?.({ dataUrl: msg.dataUrl });
-      else if (msg.type === "measure-response") pending.current.get(msg.requestId)?.(msg.error ? { error: msg.error } : { ...msg.place, matches: msg.matches, element: msg.element, viewportWidth: viewportRef.current.width });
       else if (msg.type === "console-error") {
         consoleErrors.current = [...consoleErrors.current.slice(-99), msg.message];
         setLogs((l) => [...l, `[frame] ${msg.message}`]);
@@ -197,10 +196,13 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       // Only shows the diff of a sent checkpoint; the user still decides whether to Undo.
       if (req.tool === "edits_applied") {
         if (!runCheckpoints.current.length) return { diffShown: false };
-        const open = openPlacements(appliedRef.current, placementChecks.current);
-        // Markers are scaffolding for the check; none may stay in the user's code.
-        const left = (await askOverlay({ type: "measure-request", requestId, selector: `[${MARKER}]` }).catch(() => null)) as { matches?: number } | null;
-        if (left?.matches) open.push(`${left.matches} ${MARKER} attribute(s) are still in the code; remove them`);
+        const open: string[] = [];
+        for (const edit of appliedRef.current) {
+          if (edit.kind !== "insert" && edit.kind !== "move") continue;
+          const after = await askOverlay({ type: "request-snapshot", requestId: crypto.randomUUID() }) as DomNode;
+          const problem = placementProblem(edit, beforeRecords.current.get(edit.id), after, viewportRef.current.width);
+          if (problem) open.push(problem);
+        }
         // Send it back to fix its placements twice; after that the user hears exactly what is still off rather than waiting forever.
         if (open.length && refusals.current++ < 2) return { refused: `Not finished: ${open.join("; ")}. Fix the code, check each with measure_placement, then call edits_applied again.` };
         const summary = typeof req.arguments.summary === "string" ? req.arguments.summary.trim() : "";
@@ -210,15 +212,13 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       }
       if (req.tool === "get_dom_snapshot") return askOverlay({ type: "request-snapshot", requestId });
       if (req.tool === "measure_placement") {
-        const { selector, container } = req.arguments;
         const edit = [...appliedRef.current, ...editsRef.current].find((e) => e.id === req.arguments.edit);
         if (!edit) return { error: `No Divina edit has the id ${String(req.arguments.edit)}.` };
-        const marked = typeof selector !== "string" || !selector;
-        const measured = (await askOverlay({ type: "measure-request", requestId, selector: marked ? markerSelector(edit.id) : selector, ...(typeof container === "string" && container && { container }) })) as Measured | { error: string };
-        if ("error" in measured) return marked ? { error: `${measured.error} Put ${MARKER}="${edit.id}" on the placed element itself, or pass \`selector\` if its component does not pass attributes through to the DOM.` } : measured;
-        const problem = placementProblem(edit, measured);
-        placementChecks.current.set(edit.id, problem);
-        return { ...measured, ok: !problem, ...(problem && { problem }) };
+        const before = beforeRecords.current.get(edit.id);
+        if (!before) return { error: "This check needs the edits to be sent from Divina." };
+        const after = await askOverlay({ type: "request-snapshot", requestId }) as DomNode;
+        const problem = placementProblem(edit, before, after, viewportRef.current.width);
+        return { ok: !problem, ...(problem && { problem }) };
       }
       const frame = iframeRef.current?.getBoundingClientRect();
       // The native capture grabs what's on screen, so a zoomed frame partly scrolled away uses the in-page capture.
@@ -286,14 +286,16 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
     try {
       const cp = await checkpoint();
       const brief = await api.agentPrompt(root, sent);
-      await api.terminalWrite(tab.id, `\x1b[200~${brief}\x1b[201~\r`);
+      // The agent works from the edit list; previews left in the DOM would mix with its HMR'd result.
+      post({ type: "clear-optimistic" });
+      const before = await askOverlay({ type: "request-snapshot", requestId: crypto.randomUUID() }) as DomNode;
+      beforeRecords.current.clear();
+      for (const edit of sent) beforeRecords.current.set(edit.id, before);
       runCheckpoints.current.push(cp.id);
       setHasCheckpoint(true);
       appliedRef.current = sent;
-      placementChecks.current.clear();
       refusals.current = 0;
-      // The agent works from the edit list; previews left in the DOM would mix with its HMR'd result.
-      post({ type: "clear-optimistic" });
+      await api.terminalWrite(tab.id, `\x1b[200~${brief}\x1b[201~\r`);
       setEdits((q) => q.filter((e) => !sent.includes(e)));
       setNotice(`Sent ${sent.length} edit(s) to ${tab.title}.`);
       setPanel("terminal");
