@@ -488,6 +488,51 @@ describe("free placement", () => {
     expect(placed.isConnected).toBe(false);
   });
 
+  it("records where a freely moved element lands even while its own CSS transition is still running", async () => {
+    const sent: Sent[] = [];
+    window.parent.postMessage = ((message: never) => sent.push(message)) as typeof window.parent.postMessage;
+    await import("./main.js");
+    post({ type: "set-mode", mode: "select" });
+    document.body.innerHTML = `<main><section data-divina-src="src/App.tsx:2:3" style="display:flex;flex-direction:column"><h1 data-divina-src="src/App.tsx:3:5">Title</h1><p data-divina-src="src/App.tsx:4:5" class="transition-all">Text</p></section></main>`;
+    const section = document.querySelector("section")!;
+    const [h1, p] = [...section.children] as HTMLElement[];
+    section.getBoundingClientRect = () => box(0, 0, 400, 300);
+    h1!.getBoundingClientRect = () => box(0, 0, 400, 40);
+    // A browser animating `translate` (shadcn's `transition-all`) still reports the old box right after it is set.
+    p!.getBoundingClientRect = () => {
+      const [x, y] = p!.style.transition === "none" ? p!.style.translate.split(" ").map((v) => Number.parseFloat(v) || 0) : [0, 0];
+      return box(x ?? 0, 60 + (y ?? 0), 400, 40);
+    };
+    document.elementFromPoint = () => section;
+    p!.click();
+    const at = (type: string, x: number, y: number) => p!.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y }));
+    at("pointerdown", 20, 70);
+    at("pointermove", 120, 170);
+    at("pointerup", 120, 170);
+    expect(sent.filter((m) => m.record?.kind === "move").pop()!.record!.payload).toMatchObject({ free: { x: 104, y: 160 } });
+    expect(p!.style.transition).toBe("");
+    post({ type: "clear-optimistic" });
+  });
+
+  it("does not queue a move for a click on the selected element", async () => {
+    const sent: Sent[] = [];
+    window.parent.postMessage = ((message: never) => sent.push(message)) as typeof window.parent.postMessage;
+    await import("./main.js");
+    post({ type: "set-mode", mode: "select" });
+    document.body.innerHTML = `<main><section data-divina-src="src/App.tsx:2:3" style="display:flex;flex-direction:column"><p data-divina-src="src/App.tsx:4:5">Text</p></section></main>`;
+    const section = document.querySelector("section")!;
+    const p = section.querySelector("p")!;
+    section.getBoundingClientRect = () => box(0, 0, 400, 300);
+    p.getBoundingClientRect = () => box(0, 60, 400, 40);
+    document.elementFromPoint = () => section;
+    p.click();
+    const at = (type: string, x: number, y: number) => p.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y }));
+    at("pointerdown", 20, 70);
+    at("pointerup", 21, 71);
+    expect(sent.filter((m) => m.record?.kind === "move")).toEqual([]);
+    expect(p.style.translate).toBe("");
+  });
+
   it("shifts a page element by the drag instead of reordering it, and Shift snaps it into a slot", async () => {
     const sent: Sent[] = [];
     window.parent.postMessage = ((message: never) => sent.push(message)) as typeof window.parent.postMessage;

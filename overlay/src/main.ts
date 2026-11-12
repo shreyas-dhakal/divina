@@ -290,7 +290,13 @@ function hoverAt(x: number, y: number, free = false): Hover | null {
 }
 /** Where `element` sits in `container`'s content box, for the brief and for pinning it there again. */
 function freeAt(element: Element, container: Element): FreePlace {
+  // An element with its own CSS transition (shadcn's `transition-all`) animates the shift it was just
+  // given and reports its old box until that ends, so measure with the transition off.
+  const style = element instanceof HTMLElement ? element.style : null;
+  const transition = style?.transition ?? "";
+  if (style) style.transition = "none";
   const at = placeIn(element.getBoundingClientRect(), contentRect(container));
+  if (style) style.transition = transition;
   return { ...at, x: snapOffset(at.x, snapStep), y: snapOffset(at.y, snapStep), ...(snapStep > 0 && { snapStep }) };
 }
 
@@ -540,9 +546,12 @@ function onPointerUp(event: PointerEvent) {
   if (drag) {
     const current = drag;
     drag = null;
-    const trashed = overTrash(event.clientX, event.clientY) && dragState !== "idle";
+    const moved = dragState !== "idle";
+    const trashed = overTrash(event.clientX, event.clientY) && moved;
     setDragState("idle");
     land();
+    // Under the 4px drag threshold it was a click on the selected element, not a move.
+    if (!moved) { showSnapGrid(null); showSlot(null); return; }
     if (trashed) { selected = current.element; deleteSelected(); return; }
     const finalSlot = (event.shiftKey ? findSlot : freeSlot)(event.clientX, event.clientY);
     showSnapGrid(null);
