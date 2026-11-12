@@ -100,10 +100,10 @@ All are registered in `src-tauri/src/lib.rs`, and the typed wrappers are in `src
 
 ### Editing
 
-1. The overlay (`overlay/src/main.ts`, with pure helpers in `overlay/src/overlay.ts` and vitest tests):
+1. The overlay (`overlay/src/main.ts`, with helpers in `overlay/src/overlay.ts` and slot selection in `overlay/src/slots.ts`, covered by vitest tests):
    - reads the tags
    - resolves the user-code target with `getUserCodeTarget`, which skips `components/ui/` and `node_modules/`
-   - computes drop positions from the parent's flex or grid direction
+   - `pickDropSlot` selects the innermost layout container and nearest child insertion slot from pointer coordinates; the same result drives the purple container highlight, guide, preview insertion, and canvas move edit
    - for drops on untagged elements, builds a `DomAnchor` (`buildDomAnchor`) and sends the insert with an empty `target.file`
    - applies optimistic DOM changes with a revert log
    - sends `edit` records

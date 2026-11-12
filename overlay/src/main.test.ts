@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { applyPreview, buildDomAnchor, calculateDropPosition, resolveSourceRef } from "./overlay.js";
+import { applyPreview, buildDomAnchor, resolveSourceRef } from "./overlay.js";
+import { pickDropSlot } from "./slots.js";
 
 describe("source references", () => {
   it("reads file:line:col tags, the owner chain and a map index", () => {
@@ -23,23 +24,44 @@ describe("source references", () => {
   });
 });
 
-describe("drop positions", () => {
-  it("chooses before or after along the parent's flex direction", () => {
-    const parent = document.createElement("div");
-    parent.style.display = "flex";
-    parent.style.flexDirection = "row";
-    document.body.append(parent);
-    const target = document.createElement("div");
-    parent.append(target);
-    target.getBoundingClientRect = () => ({ x: 10, y: 20, width: 100, height: 40, top: 20, right: 110, bottom: 60, left: 10, toJSON() {} });
-    expect(calculateDropPosition(target, 20, 30)).toBe("before");
-    expect(calculateDropPosition(target, 100, 30)).toBe("after");
+describe("drop slots", () => {
+  const setup = (direction = "row") => {
+    document.body.innerHTML = `<main><section class="flex-col"><button>A</button><button>B</button></section></main>`;
+    const container = document.querySelector("section")!;
+    container.style.display = "flex";
+    container.style.flexDirection = direction;
+    const children = [...container.children];
+    const box = (left: number, top: number, width: number, height: number) => ({ x: left, y: top, width, height, left, top, right: left + width, bottom: top + height, toJSON() {} });
+    container.getBoundingClientRect = () => box(0, 0, 200, 100);
+    children[0]!.getBoundingClientRect = () => box(0, 0, direction.startsWith("row") ? 80 : 200, direction.startsWith("row") ? 100 : 40);
+    children[1]!.getBoundingClientRect = () => box(direction.startsWith("row") ? 120 : 0, direction.startsWith("row") ? 0 : 60, direction.startsWith("row") ? 80 : 200, direction.startsWith("row") ? 100 : 40);
+    return { container, children };
+  };
+  const pick = (x: number, y: number) => pickDropSlot(x, y, (el) => !!el && el !== document.body && el !== document.documentElement && !el.closest("[data-divina-ui], [data-divina-placeholder]"), (el) => el, resolveSourceRef);
+  it("uses row and column layout axes and picks the nearest slot between siblings", () => {
+    const { children } = setup("row");
+    document.elementFromPoint = () => children[0]!;
+    const row = pick(100, 20)!;
+    expect([row.axis, row.index, row.position, row.anchor]).toEqual(["row", 1, "after", children[0]]);
+    setup("column");
+    const vertical = document.querySelector("button")!;
+    document.elementFromPoint = () => vertical;
+    expect(pick(20, 50)?.axis).toBe("column");
   });
-
-  it("uses inside positions for a container without layout children", () => {
-    const container = document.createElement("div");
-    container.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 100, top: 0, right: 100, bottom: 100, left: 0, toJSON() {} });
-    expect(calculateDropPosition(container, 50, 50)).toBe("inside-end");
+  it("moves a leaf hit to its parent container and maps slots to anchors", () => {
+    const { container, children } = setup("row");
+    document.elementFromPoint = () => children[0]!;
+    const slot = pick(4, 20)!;
+    expect(slot.container).toBe(container);
+    expect([slot.index, slot.position, slot.anchor]).toEqual([0, "before", children[0]]);
+  });
+  it("returns inside-start for an empty container", () => {
+    document.body.innerHTML = "<main><section></section></main>";
+    const container = document.querySelector("section")!;
+    container.style.display = "flex";
+    container.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 80, left: 0, top: 0, right: 100, bottom: 80, toJSON() {} });
+    document.elementFromPoint = () => container;
+    expect(pick(50, 40)).toMatchObject({ container, index: 0, total: 1, position: "inside-start", anchor: container });
   });
 });
 

@@ -1,5 +1,6 @@
-import type { DomNode, EditRecord, HostToOverlay, OverlayMode, OverlayToHost, Position, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
-import { applyPreview, buildDomAnchor, calculateDropPosition, getUserCodeTarget, resolveSourceRef } from "./overlay.js";
+import type { DomNode, EditRecord, HostToOverlay, OverlayMode, OverlayToHost, Rect, Scope, SourceRef, Viewport } from "../../src/shared/protocol.ts";
+import { applyPreview, buildDomAnchor, getUserCodeTarget, resolveSourceRef } from "./overlay.js";
+import { pickDropSlot, type DropSlot } from "./slots.js";
 
 const hostOrigin = (() => {
   try { return new URL(document.referrer).origin; } catch { return ""; }
@@ -42,7 +43,14 @@ const handles = document.createElement("div");
 handles.dataset.divinaUi = "true";
 handles.style.cssText = "position:absolute;right:-5px;bottom:-5px;width:10px;height:10px;border-radius:50%;background:white;border:1px solid #7c3aed;pointer-events:auto;cursor:nwse-resize";
 outline.append(label, handles);
-ui.append(outline, indicator);
+const containerHighlight = document.createElement("div");
+containerHighlight.dataset.divinaUi = "true";
+containerHighlight.style.cssText = "position:fixed;display:none;border:2px dashed #7c3aed;box-sizing:border-box;pointer-events:none";
+const slotLabel = document.createElement("div");
+slotLabel.dataset.divinaUi = "true";
+slotLabel.style.cssText = "position:absolute;left:0;top:-21px;background:#7c3aed;color:white;padding:2px 5px;border-radius:3px;white-space:nowrap;font:12px/1.3 system-ui,sans-serif";
+containerHighlight.append(slotLabel);
+ui.append(outline, indicator, containerHighlight);
 (document.documentElement ?? document.body).append(ui);
 
 function usable(element: Element | null): boolean {
@@ -62,13 +70,14 @@ function targetAt(x: number, y: number): Element | null {
   while (element && !usable(element)) element = element.parentElement;
   return element ? getUserCodeTarget(element) ?? element : null;
 }
-function showDrop(target: Element, position: Position) {
-  const rect = target.getBoundingClientRect();
-  const horizontal = getComputedStyle(target.parentElement ?? target).display.includes("flex") && getComputedStyle(target.parentElement ?? target).flexDirection.startsWith("row");
-  const inside = position.startsWith("inside");
-  if (inside) Object.assign(indicator.style, { left: `${rect.left}px`, top: `${position === "inside-start" ? rect.top : rect.bottom}px`, width: `${rect.width}px`, height: "2px" });
-  else if (horizontal) Object.assign(indicator.style, { left: `${position === "before" ? rect.left : rect.right}px`, top: `${rect.top}px`, width: "2px", height: `${rect.height}px` });
-  else Object.assign(indicator.style, { left: `${rect.left}px`, top: `${position === "before" ? rect.top : rect.bottom}px`, width: `${rect.width}px`, height: "2px" });
+function findSlot(x: number, y: number) { return pickDropSlot(x, y, usable, getUserCodeTarget, resolveSourceRef); }
+function showSlot(slot: DropSlot | null) {
+  if (!slot) { indicator.style.display = "none"; containerHighlight.style.display = "none"; return; }
+  const rect = slot.container.getBoundingClientRect();
+  Object.assign(containerHighlight.style, { display: "block", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+  const firstClass = [...slot.container.classList].find((name) => !name.startsWith("data-"));
+  slotLabel.textContent = `${slot.container.tagName.toLowerCase()}${firstClass ? `.${firstClass}` : ""} · ${slot.index + 1} of ${slot.total || 1} ${slot.axis === "row" ? "→" : "↓"}`;
+  Object.assign(indicator.style, { left: `${slot.guide.x}px`, top: `${slot.guide.y}px`, width: `${slot.guide.width || 3}px`, height: `${slot.guide.height || 3}px` });
   indicator.style.display = "block";
 }
 function snapshot(element: Element): DomNode {
@@ -82,7 +91,7 @@ function snapshot(element: Element): DomNode {
   return node;
 }
 
-let drag: { element: Element; x: number; y: number; parent: Node; next: Node | null; target: Element | null; position: Position } | null = null;
+let drag: { element: Element; x: number; y: number; parent: Node; next: Node | null; slot: DropSlot | null } | null = null;
 let resize: { element: HTMLElement; x: number; y: number; width: number; height: number; old: string } | null = null;
 function onPointerMove(event: PointerEvent) {
   if (resize) {
@@ -94,12 +103,8 @@ function onPointerMove(event: PointerEvent) {
     return;
   }
   if (drag) {
-    const target = targetAt(event.clientX, event.clientY);
-    if (target && target !== drag.element && !drag.element.contains(target)) {
-      drag.target = target;
-      drag.position = calculateDropPosition(target, event.clientX, event.clientY);
-      showDrop(target, drag.position);
-    }
+    const slot = findSlot(event.clientX, event.clientY);
+    if (slot && slot.container !== drag.element && !drag.element.contains(slot.container)) { drag.slot = slot; showSlot(slot); }
     return;
   }
   if (mode !== "select") return;
@@ -118,7 +123,7 @@ function onPointerDown(event: PointerEvent) {
   if (selected && usable(event.target as Element) && (event.target === selected || selected.contains(event.target as Node))) {
     const parent = selected.parentNode;
     if (!parent) return;
-    drag = { element: selected, x: event.clientX, y: event.clientY, parent, next: selected.nextSibling, target: null, position: "after" };
+    drag = { element: selected, x: event.clientX, y: event.clientY, parent, next: selected.nextSibling, slot: null };
     event.preventDefault(); // no text selection while dragging
   }
 }
@@ -137,38 +142,42 @@ function onPointerUp(event: PointerEvent) {
   if (drag) {
     const current = drag;
     drag = null;
-    indicator.style.display = "none";
-    const target = current.target;
-    if (!target || !current.element.parentNode) return;
+    const finalSlot = findSlot(event.clientX, event.clientY);
+    current.slot = finalSlot && finalSlot.container !== current.element && !current.element.contains(finalSlot.container) ? finalSlot : null;
+    showSlot(null);
+    const slot = current.slot;
+    if (!slot || !current.element.parentNode) return;
+    const target = slot.anchor;
     const anchor = resolveSourceRef(target);
     const source = resolveSourceRef(current.element);
     if (!anchor || !source) return;
-    if (current.position.startsWith("inside")) {
-      target.insertBefore(current.element, current.position === "inside-start" ? target.firstChild : null);
+    if (slot.position.startsWith("inside")) {
+      slot.container.insertBefore(current.element, slot.container.firstChild);
     } else {
       const parent = target.parentNode;
       if (!parent) return;
-      parent.insertBefore(current.element, current.position === "before" ? target : target.nextSibling);
+      parent.insertBefore(current.element, slot.position === "before" ? target : target.nextSibling);
     }
     revert.push(() => current.parent.insertBefore(current.element, current.next?.parentNode === current.parent ? current.next : null));
     selected = current.element;
     updateOutline(selected);
-    send({ type: "edit", record: record("move", source, { anchor, position: current.position }) });
+    send({ type: "edit", record: record("move", source, { anchor, position: slot.position }) });
   }
 }
 /** Host-driven drop of a library component at frame coords (pointer events never reach the iframe during a host drag). */
 function dropInsert(component: string, importFrom: string, x: number, y: number, library?: import("../../src/shared/protocol.ts").LibraryRef) {
-  indicator.style.display = "none";
-  const target = targetAt(x, y);
-  if (!target) return;
+  const slot = findSlot(x, y);
+  showSlot(null);
+  if (!slot) return;
+  const target = slot.anchor;
   const anchor = resolveSourceRef(target);
-  const position = calculateDropPosition(target, x, y);
+  const position = slot.position;
   const box = document.createElement("div");
   box.dataset.divinaPlaceholder = "true";
   box.textContent = component;
   // Sized to its label, not the parent: a block div spans the whole row and misrepresents a Button.
   box.style.cssText = "display:inline-block;width:fit-content;align-self:flex-start;border:1px dashed #7c3aed;border-radius:6px;background:#7c3aed12;color:#6d28d9;padding:4px 12px;font:12px/1.5 system-ui";
-  if (position.startsWith("inside")) target.insertBefore(box, position === "inside-start" ? target.firstChild : null);
+  if (position.startsWith("inside")) slot.container.insertBefore(box, slot.container.firstChild);
   else target.parentNode?.insertBefore(box, position === "before" ? target : target.nextSibling);
   revert.push(() => box.remove());
   if (anchor) send({ type: "edit", record: record("insert", anchor, { component, importFrom, anchor, position, ...(library ? { library } : {}) }) });
@@ -212,9 +221,7 @@ function onDoubleClick(event: MouseEvent) {
   target.addEventListener("blur", finish);
 }
 function showInsertHover(x: number, y: number) {
-  const target = targetAt(x, y);
-  if (target) showDrop(target, calculateDropPosition(target, x, y));
-  else indicator.style.display = "none";
+  showSlot(findSlot(x, y));
 }
 async function renderScreenshot(requestId: string) {
   const clone = document.documentElement.cloneNode(true) as HTMLElement;
@@ -268,7 +275,7 @@ function receive(event: MessageEvent<HostToOverlay>) {
       for (const undo of revert.splice(0).reverse()) undo();
       selected = null;
       updateOutline(null);
-      indicator.style.display = "none";
+      showSlot(null);
       break;
     case "request-snapshot":
       if (message.requestId) send({ type: "dom-snapshot", requestId: message.requestId, root: snapshot(document.body) });
