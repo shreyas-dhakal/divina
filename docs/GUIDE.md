@@ -54,12 +54,13 @@ You can change all of this later from **Run command…** under the preview.
 ## 4. Edit visually
 
 - **Zoom and pan** like Figma: pinch or ⌘-scroll to zoom, ⌘+ / ⌘− to step, ⇧1 to fit, ⇧0 for 100%. Two-finger scroll on the grey canvas, hold Space and drag, or middle-drag on the grey canvas to pan. H picks the Hand tool and V goes back to Select (also in the toolbar).
+- **Focus mode:** hide the side panels with the panel buttons at the ends of the canvas toolbar, or press ⌘\ to hide or show both.
 - **Size:** pick Desktop, Tablet, Mobile or a custom size in the toolbar. Edits at Desktop apply everywhere. Edits at Tablet or Mobile apply at that size and smaller.
 - **Click** an element to select it. **Drag** it to move it; the purple line shows where it will land.
 - **Resize** with the corner handle, and **double-click** text to edit it.
 - **Delete:** drag a selected element to the red trash button that appears in the bottom-right corner of the preview area, or press Delete. This also removes a component you dropped from the library before you send it.
 - **Properties** (right panel): change text, classes, padding, margin, gap, width and height.
-- **Library** (left panel): drag a component into the frame. A dashed pill with the component name shows where it will land, with red labels giving the spacing to its neighbours. On Vite projects each component shows a live thumbnail rendered by your dev server. To install more, type a command in the installer box, for example `pnpm dlx shadcn@latest add card`.
+- **Library** (left panel): drag a component into the frame. On Vite + React projects the real component shows where it will land (otherwise a dashed pill with its name), with red labels giving the spacing to its neighbours. To put it beside something, drop on the middle of that element's left or right edge. On Vite projects each component shows a live thumbnail rendered by your dev server. To install more, type a command in the installer box, for example `pnpm dlx shadcn@latest add card`.
 - In flex containers, drop near the start, centre or end of the cross axis to preview and request that alignment from the agent.
 - **Empty space:** drop anywhere clear of other elements and a 3×3 grid shows where it will go (for example the middle of the page, or the top-right corner). The agent builds that placement with layout, so it stays responsive.
 - **Component libraries:** the dropdown above the library lists ready-made libraries for your stack (shadcn/ui for React, shadcn-vue for Vue, shadcn-svelte for Svelte, Thaw for Leptos), with pictures of each component. Drag one in and the agent installs the library if needed when you send your edits to it. **Add library…** adds your own, for this project or all of them.
@@ -77,6 +78,6 @@ Each change previews instantly and joins **Pending edits**.
 
 ## Good to know
 
-- **Without tagging** (for example on Laravel Blade pages), you can't select elements in the preview, but you can still drop library components and ask the agent in its tab. It still sees screenshots and the page structure.
+- **Without tagging** (for example on Laravel Blade pages, or with tagging off), you can still select elements and edit them in Properties, delete them, resize them and edit text. The agent finds the code from the element's text and position. Moving elements by dragging needs tagging.
 - **Divina never commits for you.** Checkpoints are stored outside your branches.
 - **Everything Divina stores** for a project is in `.divina/`. Delete that folder to reset it.

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { Frame } from "@/components/Frame";
-import { Library } from "@/components/Library";
+import { Library, type LibraryDrag } from "@/components/Library";
 import { RunSetup } from "@/components/RunSetup";
 import { SettingsFooter } from "@/components/Settings";
 import { TerminalPanel, type TerminalTab } from "@/components/TerminalPanel";
@@ -10,6 +10,7 @@ import { editKey, Properties, sameRef, type Selection } from "@/components/Prope
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { usePanelRef } from "react-resizable-panels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { installMcpBridge, type McpRequest } from "@/lib/mcpBridge";
@@ -46,7 +47,8 @@ function describe(e: EditRecord) {
     e.kind === "move" ? p && "position" in p && p.position :
     e.kind === "text" ? p && "text" in p && `"${p.text}"` :
     p && "classes" in p && p.classes;
-  return `${e.kind} ${e.target.file.split("/").pop()}:${e.target.line}${detail ? ` → ${detail}` : ""}`;
+  const where = e.target.file ? `${e.target.file.split("/").pop()}:${e.target.line}` : (e.target.component ?? `<${e.dom?.tag ?? "element"}>`);
+  return `${e.kind} ${where}${detail ? ` → ${detail}` : ""}`;
 }
 
 export function Workspace({ project, onClose }: { project: ProjectInfo; onClose: () => void }) {
@@ -65,11 +67,24 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
   const [logs, setLogs] = useState<string[]>([]);
   const [logsOpen, setLogsOpen] = useState(false);
   /** Name of the library component being dragged, so the overlay can label its ghost. */
-  const [dragging, setDragging] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<LibraryDrag | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [edits, setEdits] = useState<EditRecord[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [panel, setPanel] = useState("properties");
+  const sidePanels = { left: usePanelRef(), right: usePanelRef() };
+  const [sidebars, setSidebars] = useState({ left: true, right: true });
+  function toggleSidebar(side: "left" | "right" | "both") {
+    const show = side === "both" ? !sidebars.left && !sidebars.right : !sidebars[side];
+    // WebKit buttons don't take focus on click, so focus would stay in a hidden terminal or field,
+    // where canvas shortcuts are ignored.
+    if (!show) (document.activeElement as HTMLElement | null)?.blur();
+    for (const s of side === "both" ? (["left", "right"] as const) : [side]) {
+      const p = sidePanels[s].current;
+      if (show) p?.expand();
+      else p?.collapse();
+    }
+  }
   const [activeTab, setActiveTab] = useState<TerminalTab | null>(null);
   const [sending, setSending] = useState(false);
   const [diff, setDiff] = useState<DiffResult | null>(null);
@@ -124,7 +139,12 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
       if (e.source !== iframeRef.current?.contentWindow) return;
       const msg = e.data;
       if (msg.type === "ready") post({ type: "set-mode", mode: "select" });
-      else if (msg.type === "select") setSelection({ ref: msg.ref, rect: msg.rect, computed: msg.computed });
+      else if (msg.type === "select") {
+        setSelection({ ref: msg.ref, rect: msg.rect, computed: msg.computed, ...(msg.dom && { dom: msg.dom }) });
+        // Bring Properties into view: sending edits switches to Terminal, and the sidebar may be hidden.
+        setPanel("properties");
+        sidePanels.right.current?.expand();
+      }
       else if (msg.type === "edit") {
         const vp = viewportRef.current;
         setEdits((q) => [...q, { ...msg.record, viewport: vp, scope: scopeFor(vp) }]);
@@ -187,10 +207,10 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
 
   function addEdit(partial: Pick<EditRecord, "kind" | "payload">) {
     if (!selection) return;
-    const record = { ...partial, id: crypto.randomUUID(), target: selection.ref, viewport, scope } as EditRecord;
+    const record = { ...partial, id: crypto.randomUUID(), target: selection.ref, viewport, scope, ...(selection.dom && { dom: selection.dom }) } as EditRecord;
     // A newer value for the same control, element and scope replaces the older one.
     setEdits((q) => [
-      ...q.filter((e) => !(sameRef(e.target, record.target) && e.scope === scope && editKey(e) === editKey(record))),
+      ...q.filter((e) => !(sameRef(e.target, record.target, e.dom, record.dom) && e.scope === scope && editKey(e) === editKey(record))),
       record,
     ]);
     post({ type: "preview-edit", record });
@@ -271,7 +291,14 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
     // The panel group sets an inline height:100%, so the viewport height lives on a wrapper.
     <div className="h-screen bg-background text-foreground">
     <ResizablePanelGroup>
-      <ResizablePanel defaultSize="20" minSize="12">
+      <ResizablePanel
+        defaultSize="20"
+        minSize="12"
+        collapsible
+        collapsedSize={0}
+        panelRef={sidePanels.left}
+        onResize={(s) => setSidebars((o) => ({ ...o, left: s.inPixels > 0 }))}
+      >
         <div className="flex h-full flex-col">
           <div className="flex items-center gap-2 border-b p-2 text-xs">
             <Button size="xs" variant="ghost" onClick={onClose}>← Projects</Button>
@@ -296,13 +323,15 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
               iframeRef={iframeRef}
               dragging={!!dragging}
               canvasDrag={canvasDrag}
+              sidebars={sidebars}
+              onToggleSidebar={toggleSidebar}
               onTrashZone={(rect) => post({ type: "trash-zone", rect })}
-              onHover={({ x, y }) => post({ type: "insert-hover", x, y, ...(dragging && { component: dragging }) })}
+              onHover={({ x, y }) => post({ type: "insert-hover", x, y, ...(dragging && { component: dragging.name, ...(dragging.live && { live: dragging.live }) }) })}
               onDrop={(c, x, y) => {
                 setDragging(null);
                 // Catalog cards carry `library`; project components don't, so their payload is unchanged.
                 const { library } = c as LibraryComponent & { library?: LibraryRef };
-                post({ type: "preview-insert", component: c.name, importFrom: c.importFrom, x, y, ...(library && { library }) });
+                post({ type: "preview-insert", component: c.name, importFrom: c.importFrom, x, y, ...(library && { library }), ...(dragging?.live && { live: dragging.live }) });
               }}
             />
           </div>
@@ -324,7 +353,14 @@ export function Workspace({ project, onClose }: { project: ProjectInfo; onClose:
         </div>
       </ResizablePanel>
       <ResizableHandle />
-      <ResizablePanel defaultSize="25" minSize="16">
+      <ResizablePanel
+        defaultSize="25"
+        minSize="16"
+        collapsible
+        collapsedSize={0}
+        panelRef={sidePanels.right}
+        onResize={(s) => setSidebars((o) => ({ ...o, right: s.inPixels > 0 }))}
+      >
         <div className="flex h-full flex-col">
           <Tabs value={panel} onValueChange={setPanel} className="min-h-0 flex-1 p-2">
             <TabsList>

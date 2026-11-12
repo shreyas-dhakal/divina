@@ -42,6 +42,10 @@ export interface InsertPayload {
   place?: InsertPlace;
   /** Set when the component comes from the catalog; the agent installs the library if missing. */
   library?: LibraryRef;
+  /** Dropped on the anchor's left (`before`) or right (`after`) side: the two share one row. */
+  beside?: boolean;
+  /** Id of the pending insert whose component this one was dropped next to; `anchor` is then that edit's. */
+  sibling?: string;
 }
 
 /** Catalog library a dropped component belongs to. */
@@ -71,6 +75,8 @@ export interface DomAnchor {
 export interface MovePayload {
   anchor: SourceRef;
   position: Position;
+  /** As InsertPayload.beside. */
+  beside?: boolean;
 }
 
 export interface StylePayload {
@@ -125,7 +131,8 @@ export type OverlayMode = "select" | "insert" | "off";
 export type OverlayToHost =
   | { type: "ready"; url: string }
   | { type: "hover"; ref: SourceRef | null; rect: Rect | null }
-  | { type: "select"; ref: SourceRef; rect: Rect; computed: Record<string, string> }
+  /** `dom` is set (and `ref.file` is "") when the element has no source tag. */
+  | { type: "select"; ref: SourceRef; rect: Rect; computed: Record<string, string>; dom?: DomAnchor }
   | { type: "edit"; record: EditRecord }
   /** The user deleted a dropped placeholder: drop its queued insert edit. */
   | { type: "discard-edit"; id: string }
@@ -142,10 +149,13 @@ export type OverlayToHost =
 
 export type HostToOverlay =
   | { type: "set-mode"; mode: OverlayMode }
-  /** x/y: drop point in frame (unscaled viewport) coordinates. */
-  | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number; library?: LibraryRef }
-  /** Host drag in progress over the frame: show the drop indicator at x/y (frame coords). */
-  | { type: "insert-hover"; x: number; y: number; component?: string }
+  /**
+   * x/y: drop point in frame (unscaled viewport) coordinates. `live`: the project module the overlay
+   * can render the real component from (a previewable component's `importFrom`); without it, a labelled pill.
+   */
+  | { type: "preview-insert"; component: string; importFrom: string; x: number; y: number; library?: LibraryRef; live?: string }
+  /** Host drag in progress over the frame: show the component at the slot under x/y (frame coords). */
+  | { type: "insert-hover"; x: number; y: number; component?: string; live?: string }
   /** Optimistic preview of a Properties edit on the element at record.target; reverted by clear-optimistic. */
   | { type: "preview-edit"; record: EditRecord }
   | { type: "clear-optimistic" }
@@ -292,8 +302,8 @@ export interface McpServerInfo {
  * site through, so the usage site wins. OWNERS_ATTR: space-separated "file:line:col"
  * usage sites of the owning components, innermost first. Parse from the right (paths may hold ":").
  */
-/** `KeyboardEvent.code`s the overlay forwards for canvas shortcuts (Space pans, zoom, V/H tools). */
-export const CANVAS_KEYS = ["Space", "Equal", "Minus", "Digit0", "Digit1", "KeyV", "KeyH"];
+/** `KeyboardEvent.code`s the overlay forwards for canvas shortcuts (Space pans, zoom, V/H tools, ⌘\ sidebars). */
+export const CANVAS_KEYS = ["Space", "Equal", "Minus", "Digit0", "Digit1", "KeyV", "KeyH", "Backslash"];
 
 export const SRC_ATTR = "data-divina-src";
 export const OWNERS_ATTR = "data-divina-owners";

@@ -24,8 +24,11 @@ function stackLabel(s: Stack | null) {
 // ponytail: first N in list order; render thumbnails as they scroll into view if users miss them.
 const MAX_THUMBS = 60;
 
+/** What is being dragged: `live` is the project module the frame can render the real component from. */
+export type LibraryDrag = { name: string; live?: string };
+
 /** `previewUrl` is the proxied dev server; Vite projects get live thumbnails from it. */
-export function Library({ root, previewUrl, onDragging }: { root: string; previewUrl: string | null; onDragging: (component: string | null) => void }) {
+export function Library({ root, previewUrl, onDragging }: { root: string; previewUrl: string | null; onDragging: (drag: LibraryDrag | null) => void }) {
   const [components, setComponents] = useState<LibraryComponent[]>([]);
   /** Thumbnail result per `importFrom#name`; failed or empty ones fall back to the name. */
   const [rendered, setRendered] = useState<Record<string, boolean>>({});
@@ -100,7 +103,7 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
       </div>
       <Input placeholder="Search components" value={query} onChange={(e) => setQuery(e.target.value)} />
       <ScrollArea className="min-h-0 flex-1">
-        {lib && <CatalogGrid lib={lib} query={q} onDragging={onDragging} />}
+        {lib && <CatalogGrid lib={lib} query={q} project={components} onDragging={onDragging} />}
         {!lib && shown.length === 0 && <p className="p-2 text-muted-foreground">No components found.</p>}
         {!lib && (Object.keys(SOURCES) as LibraryComponent["source"][]).map((src) => {
           const group = shown.filter((c) => c.source === src);
@@ -120,7 +123,7 @@ export function Library({ root, previewUrl, onDragging }: { root: string; previe
                     e.dataTransfer.effectAllowed = "copy";
                     e.dataTransfer.setData(DRAG_MIME, JSON.stringify(c));
                     dragChip(e, c.name);
-                    onDragging(c.name);
+                    onDragging({ name: c.name, ...(c.previewable && { live: c.importFrom }) });
                   }}
                   onDragEnd={() => onDragging(null)}
                   className="cursor-grab rounded px-2 py-1 hover:bg-muted"
@@ -190,7 +193,7 @@ function dragChip(e: DragEvent, name: string) {
   setTimeout(() => chip.remove());
 }
 
-function CatalogGrid({ lib, query, onDragging }: { lib: CatalogLibrary; query: string; onDragging: (component: string | null) => void }) {
+function CatalogGrid({ lib, query, project, onDragging }: { lib: CatalogLibrary; query: string; project: LibraryComponent[]; onDragging: (drag: LibraryDrag | null) => void }) {
   const shown = lib.components.filter((c) => c.name.toLowerCase().includes(query));
   if (!shown.length) return <p className="p-2 text-muted-foreground">No components found.</p>;
   return (
@@ -205,7 +208,9 @@ function CatalogGrid({ lib, query, onDragging }: { lib: CatalogLibrary; query: s
             e.dataTransfer.effectAllowed = "copy";
             e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ name: c.name, importFrom: lib.importFrom ?? "", library }));
             dragChip(e, c.name);
-            onDragging(c.name);
+            // Already installed in the project (shadcn copies components in): the frame can render the real one.
+            const mine = project.find((p) => p.name === c.name && p.source === "shadcn" && p.previewable);
+            onDragging({ name: c.name, ...(mine && { live: mine.importFrom }) });
           }}
           onDragEnd={() => onDragging(null)}
           className="cursor-grab overflow-hidden rounded border hover:bg-muted"

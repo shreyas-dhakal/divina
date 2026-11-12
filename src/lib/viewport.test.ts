@@ -37,6 +37,7 @@ test("canvas shortcuts", () => {
   expect(canvasAction("Digit1", false, true)).toBe("fit");
   expect(canvasAction("Digit0", false, true)).toBe("actual");
   expect(canvasAction("KeyH", false, false)).toBe("hand");
+  expect(canvasAction("Backslash", true, false)).toBe("toggle-ui");
   expect(canvasAction("KeyV", true, false)).toBe(null); // ⌘V is paste
 });
 

@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import type { EditRecord, Rect, Scope, SourceRef } from "@/shared/protocol";
+import type { DomAnchor, EditRecord, Rect, Scope, SourceRef } from "@/shared/protocol";
 
 export interface Selection {
   ref: SourceRef;
   rect: Rect;
   computed: Record<string, string>;
+  /** Set when the element has no source tag. */
+  dom?: DomAnchor;
 }
 
 const SPACING = ["0", "1", "2", "3", "4", "6", "8", "12", "16"];
@@ -21,7 +23,9 @@ const CONTROLS: [prefix: string, label: string, values: string[]][] = [
   ["h", "Height", SIZE],
 ];
 
-export const sameRef = (a: SourceRef, b: SourceRef) => a.file === b.file && a.line === b.line && a.col === b.col;
+/** Same element: same source location and, for untagged elements (all at ":0:0"), the same DOM path. */
+export const sameRef = (a: SourceRef, b: SourceRef, aDom?: DomAnchor, bDom?: DomAnchor) =>
+  a.file === b.file && a.line === b.line && a.col === b.col && aDom?.selector === bDom?.selector;
 
 /** Which control an edit belongs to, so a newer value replaces an older one in the queue. */
 export function editKey(e: EditRecord): string {
@@ -47,7 +51,7 @@ export function Properties({ selection, scope, edits, onEdit }: Props) {
 
   if (!selection) return <p className="p-3 text-sm text-muted-foreground">Select an element in the frame.</p>;
   const { ref } = selection;
-  const mine = edits.filter((e) => sameRef(e.target, ref));
+  const mine = edits.filter((e) => sameRef(e.target, ref, e.dom, selection.dom));
   const latest = (key: string) => mine.filter((e) => editKey(e) === key).pop();
   const ScopeBadge = ({ k }: { k: string }) => {
     const s = latest(k)?.scope;
@@ -57,10 +61,19 @@ export function Properties({ selection, scope, edits, onEdit }: Props) {
   return (
     <div className="flex flex-col gap-4 p-3 text-sm">
       <div>
-        <div className="font-medium">{ref.component ?? "Element"}</div>
-        <div className="font-mono text-xs text-muted-foreground">
-          {ref.file}:{ref.line}:{ref.col}
-        </div>
+        <div className="font-medium">{ref.component ?? (selection.dom ? `<${selection.dom.tag}>` : "Element")}</div>
+        {selection.dom ? (
+          <>
+            <div className="truncate font-mono text-xs text-muted-foreground" title={selection.dom.selector}>{selection.dom.selector}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              No source tag, so the agent finds this element in your code by its text and position. Turn on source tagging under Run command… for exact locations.
+            </div>
+          </>
+        ) : (
+          <div className="font-mono text-xs text-muted-foreground">
+            {ref.file}:{ref.line}:{ref.col}
+          </div>
+        )}
         {ref.list && (
           <div className="text-xs text-muted-foreground">
             item {ref.list.index} of list at {ref.list.file}:{ref.list.line}

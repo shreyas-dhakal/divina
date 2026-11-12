@@ -37,6 +37,26 @@ export function resolveSourceRef(element: Element): SourceRef | null {
   };
 }
 
+type Named = { displayName?: string; name?: string; __name?: string; render?: Named; type?: Named };
+const nameOf = (type: unknown): string | undefined => {
+  if (!type || typeof type === "string") return undefined;
+  const t = type as Named;
+  return t.displayName || t.__name || t.name || nameOf(t.render) || nameOf(t.type);
+};
+
+/**
+ * Name of the component whose root DOM node `element` is (e.g. "Card"), from framework dev data,
+ * so it works without source tagging. React: the host fiber's parent is that component (forwardRef
+ * and memo unwrap). Vue: the component instance whose rendered root is `element`.
+ */
+export function componentName(element: Element): string | undefined {
+  const key = Object.keys(element).find((k) => k.startsWith("__reactFiber$"));
+  const fiber = key && (element as unknown as Record<string, { return?: { type?: unknown } }>)[key];
+  if (fiber) return nameOf(fiber.return?.type);
+  const vue = (element as Element & { __vueParentComponent?: { type?: unknown; subTree?: { el?: unknown } } }).__vueParentComponent;
+  return vue?.subTree?.el === element ? nameOf(vue.type) : undefined;
+}
+
 export function getUserCodeTarget(element: Element): Element | null {
   let current: Element | null = element;
   while (current) {
@@ -50,6 +70,8 @@ export function getUserCodeTarget(element: Element): Element | null {
 export function buildDomAnchor(element: Element): DomAnchor {
   const parts: string[] = [];
   for (let current: Element | null = element; current && current !== document.body; current = current.parentElement) {
+    // The side-by-side preview row (main.ts) isn't in the user's markup.
+    if (current.hasAttribute("data-divina-row")) continue;
     const id = current.id;
     if (id && document.querySelectorAll(`#${CSS.escape(id)}`).length === 1) {
       parts.unshift(`#${CSS.escape(id)}`);

@@ -45,10 +45,10 @@ export function zoomView(view: View, factor: number, px: number, py: number): Vi
   return { scale, x: px - (px - view.x) * k, y: py - (py - view.y) * k };
 }
 
-export type CanvasAction = "zoom-in" | "zoom-out" | "fit" | "actual" | "hand" | "select";
+export type CanvasAction = "zoom-in" | "zoom-out" | "fit" | "actual" | "hand" | "select" | "toggle-ui";
 /** Figma / Illustrator shortcuts by `KeyboardEvent.code`; Space (hold to pan) is handled separately. */
 export function canvasAction(code: string, meta: boolean, shift: boolean): CanvasAction | null {
-  if (meta) return ({ Equal: "zoom-in", Minus: "zoom-out", Digit0: "fit", Digit1: "actual" } as const)[code as "Equal"] ?? null;
+  if (meta) return ({ Equal: "zoom-in", Minus: "zoom-out", Digit0: "fit", Digit1: "actual", Backslash: "toggle-ui" } as const)[code as "Equal"] ?? null;
   if (shift) return ({ Digit1: "fit", Digit0: "actual" } as const)[code as "Digit1"] ?? null;
   return ({ KeyH: "hand", KeyV: "select" } as const)[code as "KeyH"] ?? null;
 }

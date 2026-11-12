@@ -87,6 +87,10 @@ pub struct InsertPayload {
     pub place: Option<InsertPlace>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library: Option<LibraryRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub beside: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sibling: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -113,6 +117,8 @@ pub struct DomAnchor {
 pub struct MovePayload {
     pub anchor: SourceRef,
     pub position: Position,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub beside: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -202,7 +208,13 @@ pub enum DragState {
 pub enum OverlayToHost {
     Ready { url: String },
     Hover { r#ref: Option<SourceRef>, rect: Option<Rect> },
-    Select { r#ref: SourceRef, rect: Rect, computed: BTreeMap<String, String> },
+    Select {
+        r#ref: SourceRef,
+        rect: Rect,
+        computed: BTreeMap<String, String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dom: Option<DomAnchor>,
+    },
     Edit { record: EditRecord },
     DiscardEdit { id: String },
     Drag { state: DragState },
@@ -229,12 +241,16 @@ pub enum HostToOverlay {
         y: f64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         library: Option<LibraryRef>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        live: Option<String>,
     },
     InsertHover {
         x: f64,
         y: f64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         component: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        live: Option<String>,
     },
     PreviewEdit { record: EditRecord },
     ClearOptimistic,
@@ -505,6 +521,8 @@ mod tests {
         roundtrip::<OverlayToHost>(json!({"type": "screenshot-response", "requestId": "r1", "dataUrl": "data:"}));
         roundtrip::<OverlayToHost>(json!({"type": "hover", "ref": null, "rect": null}));
         roundtrip::<OverlayToHost>(json!({"type": "discard-edit", "id": "e1"}));
+        roundtrip::<OverlayToHost>(json!({"type": "select", "ref": {"file": "", "line": 0, "col": 0, "owners": []}, "rect": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}, "computed": {},
+            "dom": {"selector": "main > div", "tag": "div", "text": "Hi"}}));
         roundtrip::<OverlayToHost>(json!({"type": "drag", "state": "over-trash"}));
         roundtrip::<OverlayToHost>(json!({"type": "zoom", "factor": 1.1, "x": 10.0, "y": 20.0}));
         roundtrip::<OverlayToHost>(json!({"type": "canvas-key", "code": "Space", "down": true, "meta": false, "shift": false}));
@@ -519,6 +537,12 @@ mod tests {
             "description": "Rust CSR with Thaw", "available": false, "missing": "trunk: cargo install trunk"}));
         roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0}));
         roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0, "component": "Button"}));
+        roundtrip::<HostToOverlay>(json!({"type": "insert-hover", "x": 1.0, "y": 2.0, "component": "Button", "live": "@/components/ui/button"}));
+        roundtrip::<HostToOverlay>(json!({"type": "preview-insert", "component": "Button", "importFrom": "x", "x": 1.0, "y": 2.0, "live": "x"}));
+        roundtrip::<EditRecord>(json!({"id": "e8", "kind": "insert", "target": src, "viewport": vp, "scope": "all",
+            "payload": {"component": "Button", "importFrom": "x", "anchor": src, "position": "after", "beside": true, "sibling": "e5"}}));
+        roundtrip::<EditRecord>(json!({"id": "e9", "kind": "move", "target": src, "viewport": vp, "scope": "all",
+            "payload": {"anchor": src, "position": "before", "beside": true}}));
         roundtrip::<HostToOverlay>(json!({"type": "preview-edit", "record": {"id": "e4", "kind": "text", "target": src,
             "viewport": vp, "scope": "all", "payload": {"text": "Hi"}}}));
         roundtrip::<DevServerStatus>(json!({"state": "running", "url": "http://localhost:5173"}));

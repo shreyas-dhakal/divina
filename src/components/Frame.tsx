@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
-import { Hand, Minus, MousePointer2, Plus } from "lucide-react";
+import { Hand, Minus, MousePointer2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus } from "lucide-react";
 import { Delete02 } from "@/components/animate-ui/icons/hugeicons/delete-02";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -24,9 +24,12 @@ interface Props {
   onDrop: (c: LibraryComponent, x: number, y: number) => void;
   /** Drag position in frame coords; off-frame (-1,-1) when the drag leaves. */
   onHover: (p: { x: number; y: number }) => void;
+  sidebars: { left: boolean; right: boolean };
+  /** "both" hides both if either is open, else shows both (⌘\). */
+  onToggleSidebar: (side: "left" | "right" | "both") => void;
 }
 
-export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, dragging, canvasDrag, onTrashZone, onDrop, onHover }: Props) {
+export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, dragging, canvasDrag, onTrashZone, onDrop, onHover, sidebars, onToggleSidebar }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const trashRef = useRef<HTMLDivElement>(null);
@@ -63,6 +66,7 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
   function act(action: CanvasAction) {
     if (action === "fit") setCamera(null);
     else if (action === "actual") zoomBy(1 / live.current.scale);
+    else if (action === "toggle-ui") onToggleSidebar("both");
     else if (action === "zoom-in" || action === "zoom-out") zoomBy(stepZoom(live.current.scale, action === "zoom-in" ? 1 : -1) / live.current.scale);
     else setTool(action);
   }
@@ -151,6 +155,9 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-1 border-b p-2">
+        <Button size="icon-sm" variant="ghost" aria-label="Toggle left sidebar" aria-pressed={sidebars.left} title={`${sidebars.left ? "Hide" : "Show"} library (⌘\\ for both)`} onClick={() => onToggleSidebar("left")}>
+          {sidebars.left ? <PanelLeftClose /> : <PanelLeftOpen />}
+        </Button>
         {PRESETS.map((p) => (
           <Button
             key={p.preset}
@@ -199,6 +206,9 @@ export function Frame({ url, error, onRetry, viewport, setViewport, iframeRef, d
             <Plus />
           </Button>
         </div>
+        <Button size="icon-sm" variant="ghost" aria-label="Toggle right sidebar" aria-pressed={sidebars.right} title={`${sidebars.right ? "Hide" : "Show"} properties and terminal (⌘\\ for both)`} onClick={() => onToggleSidebar("right")}>
+          {sidebars.right ? <PanelRightClose /> : <PanelRightOpen />}
+        </Button>
       </div>
 
       <div className="relative min-h-0 flex-1 bg-muted/40">

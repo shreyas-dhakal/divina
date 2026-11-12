@@ -94,6 +94,14 @@ pub(crate) fn build_prompt(root: &Path, edits: &[EditRecord]) -> String {
                     edit.id, p.component
                 ));
             }
+            if let Some(sibling) = &p.sibling {
+                out.push_str(&format!(
+                    "\n\nEdit {}: <{}> was dropped next to the component that edit {sibling} inserts, which is not in the code yet. Its anchor is that edit's; place it immediately {} that component.",
+                    edit.id,
+                    p.component,
+                    if p.position == crate::protocol::Position::Before { "before" } else { "after" },
+                ));
+            }
             if let Some(lib) = &p.library {
                 out.push_str(&format!(
                     "\n\nEdit {id}: <{c}> comes from the component library \"{name}\". If it is not already a dependency of this project, add it with: `{install}`. Usage: {usage}",
@@ -104,6 +112,20 @@ pub(crate) fn build_prompt(root: &Path, edits: &[EditRecord]) -> String {
                     usage = lib.usage,
                 ));
             }
+        }
+    }
+    for edit in edits {
+        let (beside, position) = match &edit.edit {
+            EditKind::Insert(p) => (p.beside, p.position),
+            EditKind::Move(p) => (p.beside, p.position),
+            _ => continue,
+        };
+        if beside == Some(true) {
+            let side = if position == crate::protocol::Position::Before { "left" } else { "right" };
+            out.push_str(&format!(
+                "\n\nEdit {}: the user put this on the {side} side of its anchor, so the two sit side by side on one row. If the anchor's parent doesn't already lay them out in a row, wrap just those elements in a flex row (for example `flex flex-row items-center gap-2`), or join the row an earlier edit creates for the same anchor. Never use absolute or fixed positioning.",
+                edit.id
+            ));
         }
     }
     out.push_str("\n\nWhen you have implemented and verified the edits, call the divina MCP edits_applied tool with a one-line summary, so Divina shows the user the diff.");
@@ -119,7 +141,7 @@ fn untagged_section(root: &Path, edit: &EditRecord, dom: &crate::protocol::DomAn
     };
     let marker = match &edit.edit {
         EditKind::Insert(p) => format!(
-            "The dashed purple placeholder box labelled \"{}\" in the preview marks the exact drop position.",
+            "The preview of <{}> in the frame (the rendered component, or a dashed purple box labelled with its name) marks the exact drop position.",
             p.component
         ),
         _ => "The element is the one matching the selector in the preview.".to_owned(),
@@ -220,6 +242,24 @@ mod tests {
     }
 
     #[test]
+    fn side_drops_ask_for_a_shared_row() {
+        let src = json!({"file": "src/App.tsx", "line": 4, "col": 2, "owners": []});
+        let vp = json!({"preset": "desktop", "width": 1440, "height": 900});
+        let edits = records(json!([
+            {"id": "b1", "kind": "insert", "target": src, "viewport": vp, "scope": "all",
+                "payload": {"component": "Button", "importFrom": "@/button", "anchor": src, "position": "after", "beside": true}},
+            {"id": "b2", "kind": "insert", "target": src, "viewport": vp, "scope": "all",
+                "payload": {"component": "Badge", "importFrom": "@/badge", "anchor": src, "position": "before", "beside": true, "sibling": "b1"}},
+            {"id": "b3", "kind": "move", "target": src, "viewport": vp, "scope": "all",
+                "payload": {"anchor": src, "position": "before", "beside": true}},
+        ]));
+        let p = build_prompt(Path::new("/nonexistent"), &edits);
+        assert!(p.contains("Edit b1: the user put this on the right side of its anchor"), "{p}");
+        assert!(p.contains("Edit b2: <Badge> was dropped next to the component that edit b1 inserts"), "{p}");
+        assert!(p.contains("Edit b3: the user put this on the left side of its anchor"), "{p}");
+    }
+
+    #[test]
     fn placed_insert_gets_layout_placement_instruction() {
         let src = json!({"file": "src/App.tsx", "line": 1, "col": 1, "owners": []});
         let edits = records(json!([{"id": "place-1", "kind": "insert", "target": src,
@@ -246,7 +286,7 @@ mod tests {
         let p = build_prompt(&dir, &edits);
         assert!(p.contains("DOM selector: main > h2"));
         assert!(p.contains("- Home.svelte:1: <h2>Our Services</h2>"));
-        assert!(p.contains("dashed purple placeholder box labelled \"Button\""));
+        assert!(p.contains("The preview of <Button> in the frame"));
         assert!(p.contains("screenshot_frame tool first"));
         assert!(p.contains("library \"Thaw\""));
         assert!(p.contains("add it with: `cargo add thaw`"));

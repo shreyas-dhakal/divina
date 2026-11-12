@@ -195,6 +195,24 @@ describe("untagged library insert", () => {
   });
 });
 
+describe("untagged selection", () => {
+  it("selects an untagged element with a DOM anchor and React component name", async () => {
+    const sent: { type: string; ref?: { file: string; component?: string }; dom?: { selector: string; tag: string } }[] = [];
+    window.parent.postMessage = ((message: never) => sent.push(message)) as typeof window.parent.postMessage;
+    await import("./main.js");
+    window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data: { type: "set-mode", mode: "select" } }));
+    document.body.innerHTML = `<main><div class="card"><p>Total</p></div></main>`;
+    const card = document.querySelector(".card")!;
+    function Card() {}
+    Object.assign(card, { __reactFiber$abc: { return: { type: Card } } });
+    (card as HTMLElement).click();
+    const select = sent.filter((m) => m.type === "select").pop()!;
+    expect(select.ref).toMatchObject({ file: "", component: "Card" });
+    expect(select.dom).toMatchObject({ selector: "main > div", tag: "div" });
+    expect(document.querySelector("[data-divina-ui] div")?.textContent).toBe("Card"); // outline label
+  });
+});
+
 describe("canvas cursor and zoom", () => {
   it("shows grab over the selection and forwards zoom gestures to the host", async () => {
     const sent: { type: string }[] = [];
@@ -206,6 +224,7 @@ describe("canvas cursor and zoom", () => {
     document.body.innerHTML = `<h2 data-divina-src="src/App.tsx:9:3">Title</h2>`;
     const h2 = document.querySelector("h2")!;
     h2.click();
+    expect(sent).toContainEqual(expect.objectContaining({ type: "select", ref: expect.objectContaining({ file: "src/App.tsx", line: 9 }) }));
     h2.dispatchEvent(new MouseEvent("pointermove", { bubbles: true }));
     expect(cursor()).toBe("grab");
     const wheel = new WheelEvent("wheel", { ctrlKey: true, deltaY: -10, clientX: 5, clientY: 6, cancelable: true });
@@ -288,5 +307,67 @@ describe("library drag ghost", () => {
     expect(ghost()).toBeNull();
     expect([...container.children].map((el) => el.textContent)).toEqual(["A", "Card", "B"]);
     expect([container.children[0], container.children[2]]).toEqual([a, b]);
+  });
+});
+
+describe("side by side", () => {
+  const box = (left: number, top: number, width: number, height: number) => ({ x: left, y: top, width, height, left, top, right: left + width, bottom: top + height, toJSON() {} });
+  const post = (data: object) => window.dispatchEvent(new MessageEvent("message", { source: window.parent, origin: "http://localhost", data }));
+  const pick = (x: number, y: number) => pickDropSlot(x, y, (el) => !!el && el !== document.body && el !== document.documentElement, (el) => el);
+
+  it("runs along the line for inline children of a block container", () => {
+    document.body.innerHTML = `<main><div><button>A</button><button>B</button></div></main>`;
+    const [a, b] = [...document.querySelector("div")!.children];
+    a!.getBoundingClientRect = () => box(0, 0, 80, 40);
+    b!.getBoundingClientRect = () => box(90, 0, 80, 40);
+    document.elementFromPoint = () => b!;
+    expect(pick(160, 20)).toMatchObject({ axis: "row", position: "after", anchor: b });
+    expect(pick(95, 20)).toMatchObject({ axis: "row", position: "after", anchor: a });
+  });
+
+  it("takes a side drop on a stacked child, but not from its top or bottom quarter", () => {
+    document.body.innerHTML = `<main><section style="display:flex;flex-direction:column"><h1>Title</h1><p>Text</p></section></main>`;
+    const [h1, p] = [...document.querySelector("section")!.children];
+    h1!.getBoundingClientRect = () => box(0, 0, 200, 40);
+    p!.getBoundingClientRect = () => box(0, 60, 200, 40);
+    document.elementFromPoint = () => h1!;
+    expect(pick(195, 20)).toMatchObject({ beside: true, position: "after", anchor: h1 });
+    expect(pick(5, 20)).toMatchObject({ beside: true, position: "before", anchor: h1 });
+    expect(pick(195, 36)?.beside).toBeUndefined();
+    expect(pick(100, 20)?.beside).toBeUndefined();
+  });
+
+  it("previews a side drop in a shared row, records it, chains the next drop to it, and unwraps on revert", async () => {
+    const sent: { type: string; record?: { id: string; target: { file: string }; payload: { position: string; beside?: boolean; sibling?: string } } }[] = [];
+    window.parent.postMessage = ((message: never) => sent.push(message)) as typeof window.parent.postMessage;
+    await import("./main.js");
+    document.body.innerHTML = `<main><section style="display:flex;flex-direction:column"><h1 data-divina-src="src/App.tsx:3:5">Title</h1><p>Text</p></section></main>`;
+    const section = document.querySelector("section")!;
+    const [h1, p] = [...section.children];
+    section.getBoundingClientRect = () => box(0, 0, 200, 100);
+    h1!.getBoundingClientRect = () => box(0, 0, 200, 40);
+    p!.getBoundingClientRect = () => box(0, 60, 200, 40);
+    document.elementFromPoint = () => h1!;
+    post({ type: "insert-hover", x: 195, y: 20, component: "Button" });
+    const row = section.firstElementChild as HTMLElement;
+    expect(row.matches("[data-divina-row]")).toBe(true);
+    expect([...row.children].map((el) => el.textContent)).toEqual(["Title", "Button"]);
+    post({ type: "preview-insert", component: "Button", importFrom: "@/button", x: 195, y: 20 });
+    const first = sent.filter((m) => m.type === "edit").pop()!.record!;
+    expect(first).toMatchObject({ target: { file: "src/App.tsx" }, payload: { position: "after", beside: true } });
+    const button = row.lastElementChild as HTMLElement;
+    expect(button.dataset.divinaPlaceholder).toBe(first.id);
+
+    // The dropped Button is now a sibling to drop next to: the Badge lands after it, ordered against its edit.
+    h1!.getBoundingClientRect = () => box(0, 0, 60, 40);
+    button.getBoundingClientRect = () => box(68, 0, 60, 40);
+    row.getBoundingClientRect = () => box(0, 0, 200, 40);
+    document.elementFromPoint = () => row;
+    post({ type: "preview-insert", component: "Badge", importFrom: "@/badge", x: 125, y: 20 });
+    expect([...row.children].map((el) => el.textContent)).toEqual(["Title", "Button", "Badge"]);
+    expect(sent.filter((m) => m.type === "edit").pop()!.record).toMatchObject({ target: { file: "src/App.tsx" }, payload: { position: "after", beside: true, sibling: first.id } });
+
+    post({ type: "clear-optimistic" });
+    expect([...section.children]).toEqual([h1, p]);
   });
 });
