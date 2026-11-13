@@ -158,15 +158,16 @@ Your project:
 
 ### Settings (bottom-left corner)
 
-The row shows an initial, the macOS account's full name (from `id -F`, falling back to `$USER`) and a gear. It opens a dialog with three sections:
+The row shows a gear and "Settings"; Divina has no account, so it shows no name. It opens a dialog with a section list on the left and four sections:
 
 - **General:** Appearance (System, Light or Dark), stored in local storage. System follows the OS live.
 - **Connectors:**
   - Claude Code, Codex and opencode, each Connected, Not logged in or Not installed, with version and path
-  - the exact command to install (`npm i -g @anthropic-ai/claude-code`, `@openai/codex`, `opencode-ai`) or to log in (`claude auth login`, `codex login`, `opencode auth login`)
+  - the exact command to install (`npm i -g @anthropic-ai/claude-code`, `@openai/codex`, `opencode-ai`) or to log in (`claude auth login`, `codex login`, `opencode auth login`), with a copy button. Divina never runs it.
   - Refresh, which re-detects and updates the workspace's agent picker
   - whether the Divina preview tools (MCP) server is running, with its URL
-- **About:** version, license and a GitHub link.
+- **Shortcuts:** the canvas shortcuts (tools, zoom, panels) as a reference list.
+- **About:** icon, version, license and a GitHub link.
 
 ## Source tagging (opt-in)
 

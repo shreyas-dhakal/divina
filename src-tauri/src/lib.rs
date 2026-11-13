@@ -27,19 +27,6 @@ fn use_login_shell_path() {
     }
 }
 
-/// The macOS account's full name for the settings button, falling back to the login name.
-#[tauri::command]
-fn user_name() -> String {
-    std::process::Command::new("id")
-        .arg("-F")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("USER").ok())
-        .unwrap_or_default()
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -78,7 +65,6 @@ pub fn run() {
             terminal::terminal_resize,
             terminal::terminal_close,
             terminal::terminal_close_all,
-            user_name,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

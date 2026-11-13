@@ -77,7 +77,6 @@ export const api = {
     invoke<CheckpointDiff>("diff_since_checkpoint", { root, id }),
   initGit: (root: string) => invoke<void>("init_git", { root }),
 
-  userName: () => invoke<string>("user_name"),
 
   /** Native PNG data URL of a host-window region (CSS px), resampled to outWidth. */
   snapshotFrame: (rect: { x: number; y: number; width: number; height: number }, outWidth: number) =>
